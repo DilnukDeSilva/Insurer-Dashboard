@@ -6,7 +6,7 @@ Monorepo for property capture and 3D reconstruction for insurers.
 
 | Folder     | Description |
 | ---------- | ----------- |
-| `frontend` | React + Vite + TypeScript UI |
+| `frontend` | React + Vite + Three.js (React Three Fiber) |
 | `backend`  | Python FastAPI — Zero-DCE → OpenMVG → OpenMVS pipeline |
 
 ## Pipeline
@@ -43,6 +43,8 @@ npm run dev
 ```
 
 Runs at [http://localhost:5173](http://localhost:5173) and proxies `/api` to the backend.
+
+**Stack:** React 19, Vite, [Three.js](https://threejs.org/) via [@react-three/fiber](https://docs.pmnd.rs/react-three-fiber) and [@react-three/drei](https://github.com/pmndrs/drei). The 3D viewer (`src/components/three/`) is ready for OpenMVS mesh imports.
 
 ## External tools
 
