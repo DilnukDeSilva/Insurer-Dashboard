@@ -1,0 +1,436 @@
+/* ─── Page layout ─────────────────────────────────────────── */
+
+.dashboard {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  background: var(--color-bg-page);
+  overflow: hidden;
+}
+
+.dashboard__company {
+  margin: 0;
+  padding: 0.5rem 1.5rem 0.75rem;
+  font-size: 1.35rem;
+  font-weight: 700;
+  color: var(--color-text);
+  background: var(--color-bg-page);
+}
+
+.dashboard__content {
+  flex: 1;
+  display: grid;
+  grid-template-columns: minmax(320px, 35%) 1fr;
+  gap: 1rem;
+  padding: 0 1rem 1rem;
+  min-height: 0;
+}
+
+@media (max-width: 960px) {
+  .dashboard__content {
+    grid-template-columns: 1fr;
+    overflow: auto;
+  }
+}
+
+/* ─── Header ─────────────────────────────────────────────── */
+
+.dash-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.75rem 1.5rem;
+  background: var(--color-bg-panel);
+  
+}
+
+.dash-header__brand {
+  display: flex;
+  align-items: center;
+  gap: 1.25rem;
+}
+
+.dash-header__logo-img {
+  height: 68px;
+  width: auto;
+  display: block;
+}
+
+.dash-header__logo {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.dash-header__logo svg {
+  width: 48px;
+  height: 32px;
+}
+
+.dash-header__logo-text {
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: var(--color-brand);
+  letter-spacing: 0.02em;
+}
+
+.dash-header__title {
+  margin: 0;
+  font-size: 1.2rem;
+  font-weight: 600;
+  color: var(--color-brand);
+}
+
+.dash-header__user {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  font-size: 1rem;
+  font-weight: 200;
+  color: var(--color-text-secondary);
+}
+
+.dash-header__avatar {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, var(--color-brand-light), var(--color-brand));
+  color: #fff;
+  font-size: 0.75rem;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* ─── Claims list (left panel) ───────────────────────────── */
+
+.claims-panel {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  background: var(--color-bg-panel);
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--color-border);
+  padding: 1rem 1rem 0.5rem;
+  overflow: hidden;
+}
+
+.claims-panel__toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 0.35rem;
+}
+
+.claims-panel__toolbar h2 {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.claims-panel__search {
+  position: relative;
+  flex-shrink: 0;
+}
+
+.claims-panel__search input {
+  width: 11rem;
+  padding: 0.4rem 2rem 0.4rem 0.85rem;
+  border: 1px solid #d1d5db;
+  border-radius: var(--radius-pill);
+  font-size: 0.8rem;
+  font-family: inherit;
+  outline: none;
+}
+
+.claims-panel__search input:focus {
+  border-color: var(--color-brand);
+}
+
+.claims-panel__search svg {
+  position: absolute;
+  right: 0.65rem;
+  top: 50%;
+  transform: translateY(-50%);
+  pointer-events: none;
+}
+
+.claims-panel__sort {
+  margin: 0 0 0.5rem;
+  font-size: 0.7rem;
+  color: var(--color-text-placeholder);
+  text-align: right;
+}
+
+.claims-panel__table-wrap {
+  flex: 1;
+  overflow: auto;
+}
+
+.claims-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.78rem;
+}
+
+.claims-table th {
+  text-align: left;
+  padding: 0.5rem 0.4rem;
+  font-weight: 500;
+  color: var(--color-text-muted);
+  border-bottom: 1px solid var(--color-border);
+  white-space: nowrap;
+}
+
+.claims-table td {
+  padding: 0.55rem 0.4rem;
+  color: var(--color-text-secondary);
+  border-bottom: 1px solid var(--color-border-light);
+  vertical-align: top;
+}
+
+.claims-table tbody tr {
+  cursor: pointer;
+}
+
+.claims-table tbody tr:hover {
+  background: var(--color-brand-bg);
+}
+
+.claims-table__row--selected td {
+  color: var(--color-brand);
+  font-weight: 500;
+}
+
+.claims-table__submitted {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  line-height: 1.35;
+  min-width: 9rem;
+}
+
+/* ─── Claim detail (right panel) ─────────────────────────── */
+
+.claim-detail {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  flex: 1;
+  gap: 0.75rem;
+  background: var(--color-bg-panel);
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--color-border);
+  padding: 1rem;
+  overflow: hidden;
+}
+
+.claim-detail__top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.claim-detail__meta {
+  margin: 0;
+  font-size: 0.85rem;
+  color: var(--color-text-secondary);
+}
+
+.claim-detail__actions {
+  display: flex;
+  gap: 0.5rem;
+  flex-shrink: 0;
+}
+
+.btn-approve {
+  padding: 0.35rem 1rem;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: var(--color-success);
+  color: #fff;
+  font-size: 0.8rem;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.btn-inspect {
+  padding: 0.35rem 0.85rem;
+  border: 1px solid var(--color-text-placeholder);
+  border-radius: var(--radius-sm);
+  background: var(--color-bg-panel);
+  color: var(--color-text-secondary);
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+
+.claim-detail__body {
+  display: grid;
+  grid-template-columns: 1fr minmax(180px, 34%);
+  gap: 1rem;
+  min-height: 0;
+}
+
+.claim-detail__info {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.detail-row {
+  display: grid;
+  grid-template-columns: 7.5rem 1fr auto;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.8rem;
+  padding: 0.2rem 0;
+}
+
+.detail-row__label {
+  color: var(--color-text-muted);
+}
+
+.detail-row__value {
+  color: var(--color-text);
+  font-weight: 500;
+}
+
+.badge {
+  font-size: 0.75rem;
+  font-weight: 500;
+  padding: 0.15rem 0.5rem;
+  border-radius: 4px;
+}
+
+.badge--pass {
+  color: var(--color-success-text);
+}
+
+.detail-btn {
+  font-size: 0.72rem;
+  padding: 0.2rem 0.55rem;
+  border-radius: 4px;
+  white-space: nowrap;
+}
+
+.detail-btn--view {
+  border: 1px solid var(--color-brand);
+  background: var(--color-bg-panel);
+  color: var(--color-brand);
+  cursor: pointer;
+}
+
+.detail-btn--view span {
+  color: var(--color-text-placeholder);
+}
+
+.detail-btn--na {
+  border: 1px solid #d1d5db;
+  color: var(--color-text-placeholder);
+  background: var(--color-bg-muted);
+}
+
+.claim-detail__preview {
+  min-height: 140px;
+  height: 100%;
+}
+
+.claim-detail__compare {
+  flex: 1;
+  min-height: 180px;
+  display: flex;
+}
+
+@media (max-width: 1100px) {
+  .claim-detail__body {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ─── Accident images overlay ────────────────────────────── */
+
+.accident-images {
+  position: absolute;
+  inset: 0;
+  z-index: 20;
+  background: var(--color-bg-panel);
+  display: flex;
+  flex-direction: column;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-border);
+}
+
+.accident-images__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.65rem 1rem;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.accident-images__header h3 {
+  margin: 0;
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+.accident-images__header button {
+  border: none;
+  background: none;
+  font-size: 1.25rem;
+  cursor: pointer;
+  color: var(--color-text-muted);
+  line-height: 1;
+}
+
+.accident-images__main {
+  flex: 1;
+  min-height: 0;
+  padding: 0.75rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--color-bg-muted);
+}
+
+.accident-images__main img {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-border);
+}
+
+.accident-images__thumbs {
+  display: flex;
+  gap: 0.5rem;
+  padding: 0.65rem 1rem;
+  border-top: 1px solid var(--color-border);
+  overflow-x: auto;
+}
+
+.accident-images__thumbs button {
+  flex-shrink: 0;
+  padding: 2px;
+  border: 2px solid transparent;
+  border-radius: var(--radius-sm);
+  background: none;
+  cursor: pointer;
+}
+
+.accident-images__thumbs button.active {
+  border-color: var(--color-brand);
+}
+
+.accident-images__thumbs img {
+  width: 72px;
+  height: 54px;
+  object-fit: cover;
+  border-radius: 4px;
+  display: block;
+}

@@ -1,0 +1,33 @@
+:root {
+  /* Brand */
+  --color-brand: #FF8419;
+  --color-brand-light: #FF8419;
+  --color-brand-bg: #fff7ed;
+
+  /* Neutrals */
+  --color-bg-page: #e5e7eb;
+  --color-bg-panel: #ffffff;
+  --color-bg-muted: #f9fafb;
+  --color-bg-preview: #f1f5f9;
+  --color-bg-scene: #c6a44d;
+
+  --color-text: #111827;
+  --color-text-secondary: #374151;
+  --color-text-muted: #6b7280;
+  --color-text-placeholder: #9ca3af;
+
+  --color-border: #FF8419;
+  --color-border-light: #f3f4f6;
+
+  /* Status */
+  --color-success: #22c55e;
+  --color-success-text: #16a34a;
+
+  /* Layout */
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 12px;
+  --radius-pill: 999px;
+
+  --font-family: "Roboto", system-ui, -apple-system, sans-serif;
+}

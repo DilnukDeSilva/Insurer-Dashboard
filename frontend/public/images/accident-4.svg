@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="400" height="300" viewBox="0 0 400 300">
+  <rect width="400" height="300" fill="#f1f5f9"/>
+  <rect x="50" y="80" width="300" height="140" rx="4" fill="#e2e8f0" stroke="#cbd5e1"/>
+  <line x1="80" y1="120" x2="320" y2="180" stroke="#ef4444" stroke-width="3"/>
+  <text x="200" y="250" fill="#64748b" font-family="sans-serif" font-size="14" text-anchor="middle">Close-up damage</text>
+</svg>

@@ -1,0 +1,8 @@
+/**
+ * Global styles — single entry point.
+ * Import this file once from main.tsx.
+ */
+@import "./variables.css";
+@import "./base.css";
+@import "./dashboard.css";
+@import "./three.css";
