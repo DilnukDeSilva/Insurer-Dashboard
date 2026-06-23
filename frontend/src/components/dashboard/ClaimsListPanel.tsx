@@ -45,7 +45,7 @@ export function ClaimsListPanel({
         <table className="claims-table">
           <thead>
             <tr>
-              <th>Claim ID</th>
+              <th>NIC</th>
               <th>Customer</th>
               <th>Policy ID</th>
               <th>Vehicle Model</th>
