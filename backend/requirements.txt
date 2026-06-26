@@ -4,6 +4,7 @@ uvicorn[standard]>=0.34.0
 python-dotenv>=1.0.0
 pydantic-settings>=2.7.0
 python-multipart>=0.0.20
+boto3>=1.35.0
 
 # Zero-DCE inference (install when you wire up the model)
 # torch>=2.0.0

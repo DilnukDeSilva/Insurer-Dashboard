@@ -9,7 +9,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
 
-    port: int = 8000
+    port: int = 8080
     host: str = "0.0.0.0"
     environment: str = "development"
     data_dir: Path = Path("./data")
@@ -18,6 +18,11 @@ class Settings(BaseSettings):
     openmvs_bin_dir: Optional[Path] = None
     zero_dce_repo_dir: Optional[Path] = None
     zero_dce_weights: Optional[Path] = None
+
+    r2_endpoint_url: Optional[str] = None
+    r2_access_key_id: Optional[str] = None
+    r2_secret_access_key: Optional[str] = None
+    r2_bucket_name: Optional[str] = None
 
     @property
     def uploads_dir(self) -> Path:
