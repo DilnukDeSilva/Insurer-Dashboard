@@ -33,6 +33,27 @@
   text-decoration: underline;
 }
 
+.model-preview__generate {
+  position: absolute;
+  left: 50%;
+  bottom: 10px;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+}
+
+.model-preview__status {
+  font-size: 0.72rem;
+  color: #64748b;
+  padding: 0.2rem 0.6rem;
+  background: rgba(255,255,255,0.85);
+  border-radius: 4px;
+}
+
+.model-preview__status--ready {
+  color: #16a34a;
+}
+
 /* ─── Compare view (damaged vs reference) ────────────────── */
 
 .compare-view {

@@ -1,5 +1,5 @@
 export type Claim = {
-  id: string;
+  nic: string;
   customer: string;
   policyId: string;
   vehicleModel: string;
@@ -8,8 +8,9 @@ export type Claim = {
   location: string;
   gpsMatched: boolean;
   timestampSigned: boolean;
-  drunkTestAvailable: boolean;
-  drivingLicenceAvailable: boolean;
-  accidentImages: string[];
+  userVerificationAvailable: boolean;
   thirdPartyApplicable: boolean;
+  accidentImages: string[];
+  userVerificationPhotos: string[];
+  thirdPartyPhotos: string[];
 };

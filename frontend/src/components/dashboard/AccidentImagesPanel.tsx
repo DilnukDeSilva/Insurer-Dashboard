@@ -17,7 +17,7 @@ export function AccidentImagesPanel({ claim, visible, onClose }: AccidentImagesP
   return (
     <div className="accident-images" role="dialog" aria-label="Accident images">
       <div className="accident-images__header">
-        <h3>Accident Images — {claim.id}</h3>
+        <h3>Accident Images — {claim.nic}</h3>
         <button type="button" onClick={onClose} aria-label="Close">
           ×
         </button>
@@ -25,7 +25,7 @@ export function AccidentImagesPanel({ claim, visible, onClose }: AccidentImagesP
       <div className="accident-images__main">
         <img
           src={images[activeIndex]}
-          alt={`Accident upload ${activeIndex + 1} for ${claim.id}`}
+          alt={`Accident upload ${activeIndex + 1} for ${claim.nic}`}
         />
       </div>
       <div className="accident-images__thumbs">
