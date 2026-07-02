@@ -102,6 +102,13 @@ type CompareViewCanvasProps = {
   glbUrl?: string;
 };
 
+function downloadGlb(url: string) {
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = "model.glb";
+  a.click();
+}
+
 export function CompareViewCanvas({
   minimized = false,
   onToggleMinimize,
@@ -109,9 +116,20 @@ export function CompareViewCanvas({
 }: CompareViewCanvasProps) {
   return (
     <div className={`compare-view ${minimized ? "compare-view--min" : ""}`}>
-      <h3 className="compare-view__title">
-        {glbUrl ? "Generated 3D Model" : "Compare view"}
-      </h3>
+      <div className="compare-view__header">
+        <h3 className="compare-view__title">
+          {glbUrl ? "Generated 3D Model" : "Compare view"}
+        </h3>
+        {glbUrl && (
+          <button
+            type="button"
+            className="compare-view__download"
+            onClick={() => downloadGlb(glbUrl)}
+          >
+            Download GLB
+          </button>
+        )}
+      </div>
       <div className="compare-view__canvas-wrap">
         <Canvas
           shadows

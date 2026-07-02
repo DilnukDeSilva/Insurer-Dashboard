@@ -1,7 +1,6 @@
 import { useState, useEffect, useRef, type ReactNode } from "react";
 import type { Claim } from "../../types/claim";
 import { CompareViewCanvas } from "../three/CompareViewCanvas";
-import { ModelPreviewCanvas } from "../three/ModelPreviewCanvas";
 import { AccidentImagesPanel } from "./AccidentImagesPanel";
 import { MediaViewerPanel } from "./MediaViewerPanel";
 import { PipelineSteps } from "./PipelineSteps";
@@ -109,6 +108,22 @@ export function ClaimDetailPanel({ claim }: ClaimDetailPanelProps) {
           {claim.submittedDate} {claim.submittedTime}(IST) {claim.location} (GPS)
         </p>
         <div className="claim-detail__actions">
+          {modelState === "idle" && (
+            <button type="button" className="btn-inspect" onClick={handleGenerateModel}>
+              Generate 3D Model
+            </button>
+          )}
+          {modelState === "generating" && (
+            <span className="model-preview__status">Generating 3D model…</span>
+          )}
+          {modelState === "ready" && (
+            <span className="model-preview__status model-preview__status--ready">Model ready</span>
+          )}
+          {modelState === "error" && (
+            <button type="button" className="btn-inspect" onClick={handleGenerateModel}>
+              Retry 3D Model
+            </button>
+          )}
           <button type="button" className="btn-approve">
             Approve
           </button>
@@ -175,35 +190,6 @@ export function ClaimDetailPanel({ claim }: ClaimDetailPanelProps) {
           />
         </div>
 
-        <div className="claim-detail__preview">
-          <ModelPreviewCanvas glbUrl={glbUrl} />
-          <div className="model-preview__generate">
-            {modelState === "idle" && (
-              <button
-                type="button"
-                className="detail-btn detail-btn--view"
-                onClick={handleGenerateModel}
-              >
-                Generate 3D Model
-              </button>
-            )}
-            {modelState === "generating" && (
-              <span className="model-preview__status">Generating 3D model…</span>
-            )}
-            {modelState === "ready" && (
-              <span className="model-preview__status model-preview__status--ready">Model ready</span>
-            )}
-            {modelState === "error" && (
-              <button
-                type="button"
-                className="detail-btn detail-btn--view"
-                onClick={handleGenerateModel}
-              >
-                Retry
-              </button>
-            )}
-          </div>
-        </div>
       </div>
 
       <div className="claim-detail__compare">

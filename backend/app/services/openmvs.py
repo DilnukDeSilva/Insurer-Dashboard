@@ -34,7 +34,14 @@ class OpenMVSService:
         return path
 
     def _run(self, cmd: list[str], cwd: Path) -> None:
-        subprocess.run(cmd, check=True, capture_output=True, text=True, cwd=str(cwd))
+        try:
+            subprocess.run(cmd, check=True, capture_output=True, text=True, cwd=str(cwd))
+        except subprocess.CalledProcessError as e:
+            raise RuntimeError(
+                f"{cmd[0].split('/')[-1]} failed (exit {e.returncode}):\n"
+                f"STDOUT: {e.stdout[-2000:] if e.stdout else '(empty)'}\n"
+                f"STDERR: {e.stderr[-2000:] if e.stderr else '(empty)'}"
+            ) from e
 
     def run_dense_reconstruction(
         self,
@@ -70,8 +77,9 @@ class OpenMVSService:
         mark("densify", StepStatus.RUNNING)
         self._run([
             str(self._binary("DensifyPointCloud")), "scene.mvs",
-            "--resolution-level", "0",  # 0 = full resolution (best quality)
+            "--resolution-level", "1",  # 1 = half resolution — level 0 (3060×4080) OOMs on macOS
             "--fusion-mode", "0",       # 0 = depth-map fusion (default, most robust)
+            "--number-views-fuse", "2", # fuse depth maps seen by at least 2 views (more points)
         ], cwd=work_dir)
         mark("densify", StepStatus.DONE)
 
@@ -79,9 +87,10 @@ class OpenMVSService:
         # ReconstructMesh outputs scene_dense_mesh.ply (no .mvs output in this build)
         self._run([
             str(self._binary("ReconstructMesh")), "scene_dense.mvs",
-            "--decimate", "1",          # 1 = keep 100% of faces (0 would delete all)
-            "--remove-spurious", "20",  # remove floating mesh fragments
-            "--smooth", "2",            # light smoothing pass
+            "--decimate", "1",          # 1 = keep all faces (0 would remove all)
+            "--remove-spurious", "30",  # aggressively remove floating fragments
+            "--smooth", "5",            # smooth spiky artifacts from reflective surfaces
+            "--close-holes", "10",      # fill gaps — 30 takes 80+ mins; 10 is fast enough
         ], cwd=work_dir)
         mark("mesh", StepStatus.DONE)
 
