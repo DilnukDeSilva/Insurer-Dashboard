@@ -58,9 +58,22 @@ def job_status(job_id: str) -> JobStatusResponse:
     return status
 
 
+@router.get("/jobs/{job_id}/splat")
+def get_splat(job_id: str) -> FileResponse:
+    """Serve the Gaussian Splat PLY file."""
+    ply_path = settings.jobs_dir / job_id / "gs" / "splat" / "splat.ply"
+    if not ply_path.exists():
+        raise HTTPException(status_code=404, detail="Splat model not ready yet")
+    return FileResponse(
+        path=str(ply_path),
+        media_type="application/octet-stream",
+        filename="splat.ply",
+    )
+
+
 @router.get("/jobs/{job_id}/model")
 def get_model(job_id: str) -> FileResponse:
-    """Serve the generated GLB model file. Returns 404 while pipeline is still running."""
+    """Serve the GLB model (legacy) or redirect to splat."""
     glb_path = settings.jobs_dir / job_id / "mvs" / "scene.glb"
     if not glb_path.exists():
         raise HTTPException(status_code=404, detail="Model not ready yet")
