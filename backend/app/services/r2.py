@@ -62,3 +62,20 @@ class R2Service:
             downloaded.append(local_path)
 
         return downloaded
+
+    def upload_file(self, local_path: Path, r2_key: str) -> None:
+        """Upload a local file to R2 at the given key."""
+        self.client.upload_file(str(local_path), self.bucket, r2_key)
+
+    def download_file(self, r2_key: str, local_path: Path) -> None:
+        """Download a single R2 object to a local path."""
+        local_path.parent.mkdir(parents=True, exist_ok=True)
+        self.client.download_file(self.bucket, r2_key, str(local_path))
+
+    def read_status_json(self, job_id: str) -> dict:
+        """Read the step-progress JSON written by the Modal function."""
+        response = self.client.get_object(
+            Bucket=self.bucket,
+            Key=f"jobs/{job_id}/status.json",
+        )
+        return __import__("json").loads(response["Body"].read())

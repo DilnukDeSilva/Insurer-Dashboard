@@ -30,6 +30,8 @@ class PipelineStep(BaseModel):
     key: str
     label: str
     status: StepStatus = StepStatus.PENDING
+    started_at: Optional[float] = None    # unix timestamp
+    completed_at: Optional[float] = None  # unix timestamp
 
 
 class JobStatusResponse(BaseModel):
