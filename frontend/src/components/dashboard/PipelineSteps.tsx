@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 
 type StepStatus = "pending" | "running" | "done" | "failed";
 
@@ -6,12 +6,21 @@ type Step = {
   key: string;
   label: string;
   status: StepStatus;
+  started_at?: number;
+  completed_at?: number;
 };
 
 type PipelineStepsProps = {
   steps: Step[];
   modelState: "idle" | "generating" | "ready" | "error";
 };
+
+function formatDuration(seconds: number): string {
+  if (seconds < 60) return `${Math.round(seconds)}s`;
+  const m = Math.floor(seconds / 60);
+  const s = Math.round(seconds % 60);
+  return s > 0 ? `${m}m ${s}s` : `${m}m`;
+}
 
 function StepIcon({ status }: { status: StepStatus }) {
   if (status === "done")    return <span className="ps-icon ps-icon--done">✓</span>;
@@ -20,8 +29,33 @@ function StepIcon({ status }: { status: StepStatus }) {
   return <span className="ps-icon ps-icon--pending">○</span>;
 }
 
+function StepTimer({ step, now }: { step: Step; now: number }) {
+  if (step.status === "done" && step.started_at && step.completed_at) {
+    const dur = step.completed_at - step.started_at;
+    return <span className="ps-step__time ps-step__time--done">{formatDuration(dur)}</span>;
+  }
+  if (step.status === "running" && step.started_at) {
+    const elapsed = now / 1000 - step.started_at;
+    return <span className="ps-step__time ps-step__time--running">{formatDuration(elapsed)}</span>;
+  }
+  if (step.status === "failed" && step.started_at && step.completed_at) {
+    const dur = step.completed_at - step.started_at;
+    return <span className="ps-step__time ps-step__time--failed">{formatDuration(dur)}</span>;
+  }
+  return null;
+}
+
 export function PipelineSteps({ steps, modelState }: PipelineStepsProps) {
   const [minimized, setMinimized] = useState(false);
+  const [now, setNow] = useState(Date.now());
+
+  // Tick every second to update elapsed time for running steps
+  useEffect(() => {
+    const hasRunning = steps.some((s) => s.status === "running");
+    if (!hasRunning) return;
+    const id = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, [steps]);
 
   if (modelState === "idle") return null;
 
@@ -56,6 +90,7 @@ export function PipelineSteps({ steps, modelState }: PipelineStepsProps) {
             <div key={step.key} className={`ps-step ps-step--${step.status}`}>
               <StepIcon status={step.status} />
               <span className="ps-step__label">{step.label}</span>
+              <StepTimer step={step} now={now} />
             </div>
           ))}
         </div>

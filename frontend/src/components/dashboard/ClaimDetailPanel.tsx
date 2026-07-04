@@ -48,22 +48,29 @@ export function ClaimDetailPanel({ claim }: ClaimDetailPanelProps) {
   const [compareMinimized, setCompareMinimized] = useState(false);
 
   const [modelState, setModelState] = useState<ModelState>("idle");
-  const [glbUrl, setGlbUrl] = useState<string | undefined>(undefined);
+  const [splatUrl, setSplatUrl] = useState<string | undefined>(undefined);
   const [steps, setSteps] = useState<Step[]>([]);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // Reset model state when the claim changes
   useEffect(() => {
     setModelState("idle");
-    setGlbUrl(undefined);
+    setSplatUrl(undefined);
     setSteps([]);
     if (pollRef.current) clearInterval(pollRef.current);
   }, [claim.nic]);
 
   async function handleGenerateModel() {
     setModelState("generating");
-    setGlbUrl(undefined);
-    setSteps([]);
+    setSplatUrl(undefined);
+    // Show all steps immediately as pending so the list is visible straight away.
+    // Polling will update statuses and timestamps as each step progresses.
+    setSteps([
+      { key: "download", label: "Downloading images",            status: "pending" },
+      { key: "colmap",   label: "Structure from Motion (COLMAP)", status: "pending" },
+      { key: "train",    label: "Training Gaussian Splat",        status: "pending" },
+      { key: "export",   label: "Exporting splat model",          status: "pending" },
+    ]);
 
     try {
       // Step 1: create job (downloads images from R2)
@@ -89,7 +96,7 @@ export function ClaimDetailPanel({ claim }: ClaimDetailPanelProps) {
 
         if (data.overall === "completed") {
           clearInterval(pollRef.current!);
-          setGlbUrl(`${API}/pipeline/jobs/${job_id}/model`);
+          setSplatUrl(`${API}/pipeline/jobs/${job_id}/splat`);
           setModelState("ready");
         } else if (data.overall === "failed") {
           clearInterval(pollRef.current!);
@@ -196,7 +203,7 @@ export function ClaimDetailPanel({ claim }: ClaimDetailPanelProps) {
         <CompareViewCanvas
           minimized={compareMinimized}
           onToggleMinimize={() => setCompareMinimized((v) => !v)}
-          glbUrl={glbUrl}
+          splatUrl={splatUrl}
         />
       </div>
 
