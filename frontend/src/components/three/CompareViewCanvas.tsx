@@ -1,4 +1,4 @@
-import { Suspense } from "react";
+import { Suspense, useMemo } from "react";
 import { Canvas } from "@react-three/fiber";
 import {
   ContactShadows,
@@ -7,20 +7,67 @@ import {
   GizmoViewport,
   Grid,
   OrbitControls,
+  useGLTF,
 } from "@react-three/drei";
+import * as THREE from "three";
 import { DamagedCar, ReferenceCar } from "./CarModels";
 import { ComparisonLines } from "./ComparisonLines";
 
-function CompareScene() {
+function GeneratedModel({ url }: { url: string }) {
+  const { scene } = useGLTF(url);
+
+  // Compute scale + position from the UNROTATED clone so the math is stable.
+  // OpenMVS outputs Y-down (camera convention); we correct with a π X-rotation.
+  // After that rotation: Y→-Y, Z→-Z, so the original max.y becomes the new floor.
+  const { cloned, scale, position } = useMemo(() => {
+    const cloned = scene.clone(true);
+    const box = new THREE.Box3().setFromObject(cloned);
+    const size = box.getSize(new THREE.Vector3());
+    const center = box.getCenter(new THREE.Vector3());
+    const maxDim = Math.max(size.x, size.y, size.z);
+
+    if (maxDim === 0) {
+      return { cloned, scale: 1, position: [0, 0, 0] as [number, number, number] };
+    }
+
+    const s = 4 / maxDim;
+    return {
+      cloned,
+      scale: s,
+      position: [
+        -center.x * s,   // centre on X (unchanged by X-rotation)
+        box.max.y * s,   // original bottom (max.y) becomes new floor after flip
+        center.z * s,    // Z is negated by X-rotation so offset is +cz
+      ] as [number, number, number],
+    };
+  }, [scene]);
+
+  return (
+    <group position={position} scale={scale}>
+      <group rotation={[Math.PI, 0, 0]}>
+        <primitive object={cloned} castShadow receiveShadow />
+      </group>
+    </group>
+  );
+}
+
+function CompareScene({ glbUrl }: { glbUrl?: string }) {
   return (
     <>
       <color attach="background" args={["#e8eaed"]} />
-      <ambientLight intensity={0.55} />
+      <ambientLight intensity={0.8} />
       <directionalLight position={[6, 10, 5]} intensity={1.2} castShadow />
+      <directionalLight position={[-6, 4, -5]} intensity={0.4} />
 
-      <DamagedCar damaged position={[-2.2, 0, 0]} rotation={[0, 0.25, 0]} />
-      <ReferenceCar position={[2.2, 0, 0]} rotation={[0, -0.25, 0]} />
-      <ComparisonLines />
+      {glbUrl ? (
+        <GeneratedModel url={glbUrl} />
+      ) : (
+        <>
+          <DamagedCar damaged position={[-2.2, 0, 0]} rotation={[0, 0.25, 0]} />
+          <ReferenceCar position={[2.2, 0, 0]} rotation={[0, -0.25, 0]} />
+          <ComparisonLines />
+        </>
+      )}
 
       <Grid
         position={[0, 0, 0]}
@@ -37,8 +84,8 @@ function CompareScene() {
       <OrbitControls
         enableDamping
         dampingFactor={0.06}
-        minDistance={6}
-        maxDistance={16}
+        minDistance={2}
+        maxDistance={20}
         target={[0, 0.5, 0]}
       />
 
@@ -52,15 +99,37 @@ function CompareScene() {
 type CompareViewCanvasProps = {
   minimized?: boolean;
   onToggleMinimize?: () => void;
+  glbUrl?: string;
 };
+
+function downloadGlb(url: string) {
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = "model.glb";
+  a.click();
+}
 
 export function CompareViewCanvas({
   minimized = false,
   onToggleMinimize,
+  glbUrl,
 }: CompareViewCanvasProps) {
   return (
     <div className={`compare-view ${minimized ? "compare-view--min" : ""}`}>
-      <h3 className="compare-view__title">Compare view</h3>
+      <div className="compare-view__header">
+        <h3 className="compare-view__title">
+          {glbUrl ? "Generated 3D Model" : "Compare view"}
+        </h3>
+        {glbUrl && (
+          <button
+            type="button"
+            className="compare-view__download"
+            onClick={() => downloadGlb(glbUrl)}
+          >
+            Download GLB
+          </button>
+        )}
+      </div>
       <div className="compare-view__canvas-wrap">
         <Canvas
           shadows
@@ -68,7 +137,7 @@ export function CompareViewCanvas({
           gl={{ antialias: true }}
         >
           <Suspense fallback={null}>
-            <CompareScene />
+            <CompareScene glbUrl={glbUrl} />
           </Suspense>
         </Canvas>
       </div>

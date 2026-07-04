@@ -2,15 +2,15 @@ import type { Claim } from "../../types/claim";
 
 type ClaimsListPanelProps = {
   claims: Claim[];
-  selectedId: string;
+  selectedNic: string;
   search: string;
   onSearchChange: (value: string) => void;
-  onSelect: (id: string) => void;
+  onSelect: (nic: string) => void;
 };
 
 export function ClaimsListPanel({
   claims,
-  selectedId,
+  selectedNic,
   search,
   onSearchChange,
   onSelect,
@@ -18,7 +18,7 @@ export function ClaimsListPanel({
   const filtered = claims.filter(
     (c) =>
       c.customer.toLowerCase().includes(search.toLowerCase()) ||
-      c.id.toLowerCase().includes(search.toLowerCase()) ||
+      c.nic.toLowerCase().includes(search.toLowerCase()) ||
       c.vehicleModel.toLowerCase().includes(search.toLowerCase()),
   );
 
@@ -55,18 +55,18 @@ export function ClaimsListPanel({
           <tbody>
             {filtered.map((claim) => (
               <tr
-                key={claim.id}
-                className={claim.id === selectedId ? "claims-table__row--selected" : ""}
-                onClick={() => onSelect(claim.id)}
+                key={claim.nic}
+                className={claim.nic === selectedNic ? "claims-table__row--selected" : ""}
+                onClick={() => onSelect(claim.nic)}
               >
-                <td>{claim.id}</td>
+                <td>{claim.nic}</td>
                 <td>{claim.customer}</td>
                 <td>{claim.policyId}</td>
                 <td>{claim.vehicleModel}</td>
                 <td className="claims-table__submitted">
-                  <span>{claim.submittedDate}</span>
-                  <span>{claim.submittedTime}(IST)</span>
-                  <span>{claim.location} (GPS)</span>
+                  {claim.submittedDate && <span>{claim.submittedDate}</span>}
+                  {claim.submittedTime && <span>{claim.submittedTime} (IST)</span>}
+                  {claim.location && <span>{claim.location} (GPS)</span>}
                 </td>
               </tr>
             ))}

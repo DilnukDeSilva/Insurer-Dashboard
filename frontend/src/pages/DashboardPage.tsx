@@ -1,16 +1,30 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { ClaimDetailPanel } from "../components/dashboard/ClaimDetailPanel";
 import { ClaimsListPanel } from "../components/dashboard/ClaimsListPanel";
 import { DashboardHeader } from "../components/dashboard/DashboardHeader";
-import { DEFAULT_CLAIM_ID, MOCK_CLAIMS } from "../data/claims";
+import { fetchClaims } from "../data/claims";
+import type { Claim } from "../types/claim";
 
 export function DashboardPage() {
-  const [selectedId, setSelectedId] = useState(DEFAULT_CLAIM_ID);
+  const [claims, setClaims] = useState<Claim[]>([]);
+  const [selectedNic, setSelectedNic] = useState<string>("");
   const [search, setSearch] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    fetchClaims()
+      .then((data) => {
+        setClaims(data);
+        if (data.length > 0) setSelectedNic(data[0].nic);
+      })
+      .catch((e: unknown) => setError(e instanceof Error ? e.message : "Failed to load claims"))
+      .finally(() => setLoading(false));
+  }, []);
 
   const selectedClaim = useMemo(
-    () => MOCK_CLAIMS.find((c) => c.id === selectedId) ?? MOCK_CLAIMS[0],
-    [selectedId],
+    () => claims.find((c) => c.nic === selectedNic) ?? claims[0],
+    [claims, selectedNic],
   );
 
   return (
@@ -18,16 +32,23 @@ export function DashboardPage() {
       <DashboardHeader />
       <p className="dashboard__company">Allianz Insurance Lanka Limited</p>
 
-      <div className="dashboard__content">
-        <ClaimsListPanel
-          claims={MOCK_CLAIMS}
-          selectedId={selectedId}
-          search={search}
-          onSearchChange={setSearch}
-          onSelect={setSelectedId}
-        />
-        <ClaimDetailPanel claim={selectedClaim} key={selectedClaim.id} />
-      </div>
+      {loading && <p style={{ padding: "2rem" }}>Loading claims…</p>}
+      {error && <p style={{ padding: "2rem", color: "red" }}>{error}</p>}
+
+      {!loading && !error && (
+        <div className="dashboard__content">
+          <ClaimsListPanel
+            claims={claims}
+            selectedNic={selectedNic}
+            search={search}
+            onSearchChange={setSearch}
+            onSelect={setSelectedNic}
+          />
+          {selectedClaim && (
+            <ClaimDetailPanel claim={selectedClaim} key={selectedClaim.nic} />
+          )}
+        </div>
+      )}
     </div>
   );
 }
