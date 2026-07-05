@@ -100,7 +100,7 @@ def list_claims() -> List[Dict[str, Any]]:
         tp_keys = [obj["Key"] for obj in tp.get("Contents", []) if not obj["Key"].endswith("/")]
         third_party_photos = [_presign(s3, bucket, k) for k in tp_keys]
 
-        claims.append({
+        entry: Dict[str, Any] = {
             "nic": nic,
             "customer": customer,
             "policyId": metadata.get("policy-number") or "AL-VIP-00001",
@@ -115,9 +115,25 @@ def list_claims() -> List[Dict[str, Any]]:
             "accidentImages": accident_images,
             "userVerificationPhotos": user_verification_photos,
             "thirdPartyPhotos": third_party_photos,
-        })
+        }
+        if metadata.get("vehicle-reg-no"):
+            entry["vehicleRegNo"] = metadata["vehicle-reg-no"]
+        claims.append(entry)
 
     return claims
+
+
+@router.get("/{nic}/models")
+def list_models_for_claim(nic: str) -> List[Dict[str, Any]]:
+    """Return all completed 3D models for a given NIC, newest first."""
+    from app.services.r2 import R2Service
+    r2 = R2Service()
+    if not r2.is_configured:
+        return []
+    try:
+        return r2.list_models_for_nic(nic)
+    except Exception:
+        return []
 
 
 @router.get("/{folder_name}/photos")

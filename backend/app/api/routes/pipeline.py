@@ -60,10 +60,13 @@ def job_status(job_id: str) -> JobStatusResponse:
 
 @router.get("/jobs/{job_id}/splat")
 def get_splat(job_id: str) -> FileResponse:
-    """Serve the Gaussian Splat PLY file."""
+    """Serve the Gaussian Splat PLY file, fetching from R2 if not cached locally."""
     ply_path = settings.jobs_dir / job_id / "gs" / "splat" / "splat.ply"
     if not ply_path.exists():
-        raise HTTPException(status_code=404, detail="Splat model not ready yet")
+        try:
+            pipeline_service.r2.download_file(f"jobs/{job_id}/splat.ply", ply_path)
+        except Exception:
+            raise HTTPException(status_code=404, detail="Splat model not ready yet")
     return FileResponse(
         path=str(ply_path),
         media_type="application/octet-stream",

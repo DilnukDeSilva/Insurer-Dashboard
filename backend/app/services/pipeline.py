@@ -69,6 +69,18 @@ class PipelineService:
         status.steps[0].status = StepStatus.DONE
         status.steps[0].completed_at = time.time()
 
+        # Tag this job with the NIC so it can be found later
+        from datetime import datetime, timezone as _tz
+        try:
+            self.r2.write_job_meta(
+                job_id,
+                nic=nic,
+                customer=customer_name,
+                created_at=datetime.now(_tz.utc).isoformat(),
+            )
+        except Exception:
+            pass  # non-fatal — pipeline still runs
+
         return PipelineJobResponse(
             job_id=job_id,
             status=PipelineJobStatus.PENDING,
