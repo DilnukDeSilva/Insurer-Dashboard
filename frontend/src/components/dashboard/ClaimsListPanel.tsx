@@ -1,3 +1,4 @@
+import { useState } from "react";
 import type { Claim } from "../../types/claim";
 
 type ClaimsListPanelProps = {
@@ -15,12 +16,20 @@ export function ClaimsListPanel({
   onSearchChange,
   onSelect,
 }: ClaimsListPanelProps) {
-  const filtered = claims.filter(
-    (c) =>
-      c.customer.toLowerCase().includes(search.toLowerCase()) ||
-      c.nic.toLowerCase().includes(search.toLowerCase()) ||
-      c.vehicleModel.toLowerCase().includes(search.toLowerCase()),
-  );
+  const [sortAsc, setSortAsc] = useState(false);
+
+  const filtered = claims
+    .filter(
+      (c) =>
+        c.customer.toLowerCase().includes(search.toLowerCase()) ||
+        c.nic.toLowerCase().includes(search.toLowerCase()) ||
+        c.vehicleModel.toLowerCase().includes(search.toLowerCase()),
+    )
+    .sort((a, b) => {
+      const da = a.submittedDate ? new Date(a.submittedDate).getTime() : 0;
+      const db = b.submittedDate ? new Date(b.submittedDate).getTime() : 0;
+      return sortAsc ? da - db : db - da;
+    });
 
   return (
     <section className="claims-panel">
@@ -40,7 +49,13 @@ export function ClaimsListPanel({
           </svg>
         </div>
       </div>
-      <p className="claims-panel__sort">Sorted by Date ↑</p>
+      <button
+        type="button"
+        className="claims-panel__sort"
+        onClick={() => setSortAsc((v) => !v)}
+      >
+        Sorted by Date {sortAsc ? "↑" : "↓"}
+      </button>
       <div className="claims-panel__table-wrap">
         <table className="claims-table">
           <thead>
@@ -63,11 +78,7 @@ export function ClaimsListPanel({
                 <td>{claim.customer}</td>
                 <td>{claim.policyId}</td>
                 <td>{claim.vehicleModel}</td>
-                <td className="claims-table__submitted">
-                  {claim.submittedDate && <span>{claim.submittedDate}</span>}
-                  {claim.submittedTime && <span>{claim.submittedTime} (IST)</span>}
-                  {claim.location && <span>{claim.location} (GPS)</span>}
-                </td>
+                <td>{claim.submittedDate || "—"}</td>
               </tr>
             ))}
           </tbody>

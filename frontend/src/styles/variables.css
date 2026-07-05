@@ -5,7 +5,7 @@
   --color-brand-bg: #fff7ed;
 
   /* Neutrals */
-  --color-bg-page: #e5e7eb;
+  --color-bg-page: #ffdeba21;
   --color-bg-panel: #ffffff;
   --color-bg-muted: #f9fafb;
   --color-bg-preview: #f1f5f9;
@@ -16,7 +16,7 @@
   --color-text-muted: #6b7280;
   --color-text-placeholder: #9ca3af;
 
-  --color-border: #FF8419;
+  --color-border: #e5e7eb;
   --color-border-light: #f3f4f6;
 
   /* Status */

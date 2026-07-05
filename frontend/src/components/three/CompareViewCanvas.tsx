@@ -98,8 +98,6 @@ function CompareScene({ glbUrl }: { glbUrl?: string }) {
 }
 
 type CompareViewCanvasProps = {
-  minimized?: boolean;
-  onToggleMinimize?: () => void;
   glbUrl?: string;
   splatUrl?: string;
 };
@@ -111,16 +109,11 @@ function downloadFile(url: string, filename: string) {
   a.click();
 }
 
-export function CompareViewCanvas({
-  minimized = false,
-  onToggleMinimize,
-  glbUrl,
-  splatUrl,
-}: CompareViewCanvasProps) {
+export function CompareViewCanvas({ glbUrl, splatUrl }: CompareViewCanvasProps) {
   const hasModel = !!(splatUrl || glbUrl);
 
   return (
-    <div className={`compare-view ${minimized ? "compare-view--min" : ""}`}>
+    <div className="compare-view">
       <div className="compare-view__header">
         <h3 className="compare-view__title">
           {hasModel ? "Generated 3D Model" : "Compare view"}
@@ -147,7 +140,7 @@ export function CompareViewCanvas({
       <div className="compare-view__canvas-wrap">
         {splatUrl ? (
           <GaussianSplatViewer url={splatUrl} />
-        ) : (
+        ) : glbUrl ? (
           <Canvas
             shadows
             camera={{ position: [0, 3.5, 10], fov: 42 }}
@@ -157,11 +150,13 @@ export function CompareViewCanvas({
               <CompareScene glbUrl={glbUrl} />
             </Suspense>
           </Canvas>
+        ) : (
+          <div className="compare-view__empty">
+            <p>No 3D model generated yet.</p>
+            <p>Click <strong>Generate 3D Model</strong> to start.</p>
+          </div>
         )}
       </div>
-      <button type="button" className="compare-view__link" onClick={onToggleMinimize}>
-        {minimized ? "<Expand view>" : "<Minimize view>"}
-      </button>
     </div>
   );
 }

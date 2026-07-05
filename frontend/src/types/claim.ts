@@ -3,6 +3,7 @@ export type Claim = {
   customer: string;
   policyId: string;
   vehicleModel: string;
+  vehicleRegNo?: string;
   submittedDate: string;
   submittedTime: string;
   location: string;
