@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import type { Claim } from "../../types/claim";
+import type { Claim, ClaimLocationEntry } from "../../types/claim";
 import { CompareViewCanvas } from "../three/CompareViewCanvas";
 import { AccidentImagesPanel } from "./AccidentImagesPanel";
 import { MediaViewerPanel } from "./MediaViewerPanel";
@@ -29,6 +29,35 @@ function InfoRow({
           {passed ? "✓  Passed" : "✗  Failed"}
         </span>
       )}
+    </div>
+  );
+}
+
+function LocationBlock({
+  label,
+  sublabel,
+  entry,
+}: {
+  label: string;
+  sublabel: string;
+  entry?: ClaimLocationEntry;
+}) {
+  const address = entry?.location_label ?? "—";
+  const timestamp = entry?.captured_at_display_local ?? (entry?.captured_at ? new Date(entry.captured_at).toLocaleString() : "—");
+  const coords =
+    entry?.gps_lat != null && entry?.gps_lng != null
+      ? `${entry.gps_lat.toFixed(5)}, ${entry.gps_lng.toFixed(5)}`
+      : null;
+
+  return (
+    <div className="location-row">
+      <div className="location-row__header">
+        <span className="location-row__label">{label}</span>
+        <span className="location-row__sublabel">{sublabel}</span>
+      </div>
+      <span className="location-row__value">{address}</span>
+      {coords && <span className="location-row__coords">{coords}</span>}
+      <span className="location-row__time">{timestamp}</span>
     </div>
   );
 }
@@ -106,15 +135,6 @@ export function ClaimDetailPanel({ claim }: { claim: Claim }) {
       setModelState("error");
     }
   }
-
-  const dateLine =
-    [
-      claim.submittedDate,
-      claim.submittedTime ? `${claim.submittedTime}(IST)` : "",
-      claim.location ? `${claim.location} (GPS)` : "",
-    ]
-      .filter(Boolean)
-      .join(" ");
 
   return (
     <section className="claim-detail">
@@ -278,18 +298,21 @@ export function ClaimDetailPanel({ claim }: { claim: Claim }) {
             <button type="button" onClick={() => setShowLocation(false)}>×</button>
           </div>
           <div className="location-details">
-            <div className="location-row">
-              <span className="location-row__label">Reported</span>
-              <span className="location-row__value">{dateLine}</span>
-            </div>
-            <div className="location-row">
-              <span className="location-row__label">Captured</span>
-              <span className="location-row__value">{dateLine}</span>
-            </div>
-            <div className="location-row">
-              <span className="location-row__label">Submitted</span>
-              <span className="location-row__value">{dateLine}</span>
-            </div>
+            <LocationBlock
+              label="Reported"
+              sublabel=" "
+              entry={claim.locations?.insurer_call}
+            />
+            <LocationBlock
+              label="Captured"
+              sublabel=" "
+              entry={claim.locations?.guided_capture_started}
+            />
+            <LocationBlock
+              label="Submitted"
+              sublabel=" "
+              entry={claim.locations?.report_submitted}
+            />
           </div>
         </div>
       )}

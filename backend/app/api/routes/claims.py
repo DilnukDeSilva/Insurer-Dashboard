@@ -80,25 +80,79 @@ def list_claims() -> List[Dict[str, Any]]:
             head = s3.head_object(Bucket=bucket, Key=step1["Contents"][0]["Key"])
             metadata = head.get("Metadata", {})
 
-        submitted_date, submitted_time = _parse_timestamp(metadata.get("report-timestamp"))
-
-        # Collect step-1 walkaround photos as accident images (pre-signed URLs)
+        # Collect step-1 walkaround photos with per-photo metadata
         all_step1 = s3.list_objects_v2(Bucket=bucket, Prefix=f"{folder}/step-1-photos-uploaded/")
-        accident_images = [
-            _presign(s3, bucket, obj["Key"])
-            for obj in all_step1.get("Contents", [])
-            if not obj["Key"].endswith("/")
-        ]
+        accident_images = []
+        for obj in all_step1.get("Contents", []):
+            if obj["Key"].endswith("/"):
+                continue
+            url = _presign(s3, bucket, obj["Key"])
+            try:
+                ph = s3.head_object(Bucket=bucket, Key=obj["Key"])
+                pmeta = ph.get("Metadata", {})
+            except Exception:
+                pmeta = {}
+            accident_images.append({
+                "url": url,
+                "gps_lat": float(pmeta["photo-gps-lat"]) if pmeta.get("photo-gps-lat") else None,
+                "gps_lng": float(pmeta["photo-gps-lng"]) if pmeta.get("photo-gps-lng") else None,
+                "captured_at": pmeta.get("photo-captured-at") or None,
+            })
 
         # User-verification subfolder: driving licence + drunk test
         uv = s3.list_objects_v2(Bucket=bucket, Prefix=f"{folder}/step-2-fraud-validation/user-verification/")
-        uv_keys = [obj["Key"] for obj in uv.get("Contents", []) if not obj["Key"].endswith("/")]
-        user_verification_photos = [_presign(s3, bucket, k) for k in uv_keys]
+        user_verification_photos = []
+        for obj in uv.get("Contents", []):
+            if obj["Key"].endswith("/"):
+                continue
+            url = _presign(s3, bucket, obj["Key"])
+            try:
+                ph = s3.head_object(Bucket=bucket, Key=obj["Key"])
+                pmeta = ph.get("Metadata", {})
+            except Exception:
+                pmeta = {}
+            user_verification_photos.append({
+                "url": url,
+                "gps_lat": float(pmeta["photo-gps-lat"]) if pmeta.get("photo-gps-lat") else None,
+                "gps_lng": float(pmeta["photo-gps-lng"]) if pmeta.get("photo-gps-lng") else None,
+                "captured_at": pmeta.get("photo-captured-at") or None,
+            })
 
         # Third-party subfolder
         tp = s3.list_objects_v2(Bucket=bucket, Prefix=f"{folder}/step-2-fraud-validation/third-party/")
-        tp_keys = [obj["Key"] for obj in tp.get("Contents", []) if not obj["Key"].endswith("/")]
-        third_party_photos = [_presign(s3, bucket, k) for k in tp_keys]
+        third_party_photos = []
+        for obj in tp.get("Contents", []):
+            if obj["Key"].endswith("/"):
+                continue
+            url = _presign(s3, bucket, obj["Key"])
+            try:
+                ph = s3.head_object(Bucket=bucket, Key=obj["Key"])
+                pmeta = ph.get("Metadata", {})
+            except Exception:
+                pmeta = {}
+            third_party_photos.append({
+                "url": url,
+                "gps_lat": float(pmeta["photo-gps-lat"]) if pmeta.get("photo-gps-lat") else None,
+                "gps_lng": float(pmeta["photo-gps-lng"]) if pmeta.get("photo-gps-lng") else None,
+                "captured_at": pmeta.get("photo-captured-at") or None,
+            })
+
+        # Read locations.json written by POST /complete
+        locations: Dict[str, Any] = {}
+        try:
+            import json as _json
+            loc_obj = s3.get_object(Bucket=bucket, Key=f"{folder}/locations/locations.json")
+            locations = _json.loads(loc_obj["Body"].read())
+        except Exception:
+            pass
+
+        # Report-level data: prefer locations.json (written at submit time), fall back to old R2 metadata
+        report_submitted = locations.get("report_submitted", {})
+        submitted_date, submitted_time = _parse_timestamp(
+            report_submitted.get("captured_at") or metadata.get("report-timestamp")
+        )
+        report_location = report_submitted.get("location_label") or metadata.get("report-location", "")
+        gps_matched = bool(report_submitted.get("gps_lat") or metadata.get("report-gps-lat"))
 
         entry: Dict[str, Any] = {
             "nic": nic,
@@ -107,14 +161,15 @@ def list_claims() -> List[Dict[str, Any]]:
             "vehicleModel": metadata.get("vehicle-model") or "Toyota Raize",
             "submittedDate": submitted_date,
             "submittedTime": submitted_time,
-            "location": metadata.get("report-location", ""),
-            "gpsMatched": bool(metadata.get("report-gps-lat")),
+            "location": report_location,
+            "gpsMatched": gps_matched,
             "timestampSigned": bool(submitted_date),
             "userVerificationAvailable": len(user_verification_photos) > 0,
             "thirdPartyApplicable": len(third_party_photos) > 0,
             "accidentImages": accident_images,
             "userVerificationPhotos": user_verification_photos,
             "thirdPartyPhotos": third_party_photos,
+            "locations": locations,
         }
         if metadata.get("vehicle-reg-no"):
             entry["vehicleRegNo"] = metadata["vehicle-reg-no"]
