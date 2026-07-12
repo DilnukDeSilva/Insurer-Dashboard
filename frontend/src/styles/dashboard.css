@@ -418,12 +418,75 @@
   border-color: #9ca3af;
 }
 
+.btn-enhanced {
+  padding: 0.34rem 0;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: #f97316;
+  color: #fff;
+  font-size: 0.82rem;
+  font-weight: 500;
+  font-family: inherit;
+  cursor: pointer;
+  width: 100%;
+}
+.btn-enhanced:hover { background: #ea6c0a; }
+
 .model-generating {
   font-size: 0.8rem;
   color: var(--color-text-muted);
   padding: 0.3rem 0;
   text-align: center;
 }
+
+/* ── Enhanced photos overlay ─────────────────────────── */
+.enhanced-badge {
+  font-size: 0.7rem;
+  background: #f97316;
+  color: #fff;
+  border-radius: 999px;
+  padding: 0.1rem 0.55rem;
+  font-weight: 500;
+  margin-left: 0.5rem;
+  vertical-align: middle;
+}
+
+.enhanced-notice {
+  font-size: 0.82rem;
+  color: #92400e;
+  background: #fef3c7;
+  border: 1px solid #fcd34d;
+  border-radius: 6px;
+  padding: 0.55rem 0.8rem;
+  margin: 0.75rem 1rem;
+}
+
+.enhanced-loading {
+  text-align: center;
+  color: var(--color-text-muted);
+  padding: 2rem;
+  font-size: 0.88rem;
+}
+
+.enhanced-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 0.75rem;
+  padding: 0 1rem 1rem;
+  overflow-y: auto;
+  max-height: calc(100% - 140px);
+}
+
+.enhanced-img {
+  width: 100%;
+  aspect-ratio: 4/3;
+  object-fit: cover;
+  border-radius: 6px;
+  cursor: pointer;
+  border: 1px solid #e5e7eb;
+  transition: opacity 0.15s;
+}
+.enhanced-img:hover { opacity: 0.85; }
 
 .model-ready {
   font-size: 0.8rem;
@@ -739,8 +802,9 @@
   font-size: 0.8rem;
 }
 
-.ps-float--ready  { background: #14532d; }
-.ps-float--error  { background: #7f1d1d; }
+.ps-float--ready     { background: #14532d; }
+.ps-float--error     { background: #7f1d1d; }
+.ps-float--low-light { background: #92400e; }
 
 .ps-float__header {
   display: flex;
@@ -804,7 +868,8 @@
 
 .ps-step--running { color: #93c5fd; font-weight: 500; }
 .ps-step--done    { color: #4ade80; }
-.ps-step--failed  { color: #f87171; }
+.ps-step--failed   { color: #f87171; }
+.ps-step--skipped  { color: #6b7280; opacity: 0.6; }
 
 .ps-step__label { flex: 1; }
 

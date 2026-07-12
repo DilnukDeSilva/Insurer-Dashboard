@@ -17,6 +17,7 @@ class PipelineJobStatus(str, Enum):
     RUNNING = "running"
     COMPLETED = "completed"
     FAILED = "failed"
+    LOW_LIGHT = "low_light"
 
 
 class StepStatus(str, Enum):
@@ -24,6 +25,7 @@ class StepStatus(str, Enum):
     RUNNING = "running"
     DONE = "done"
     FAILED = "failed"
+    SKIPPED = "skipped"
 
 
 class PipelineStep(BaseModel):

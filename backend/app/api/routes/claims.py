@@ -178,6 +178,19 @@ def list_claims() -> List[Dict[str, Any]]:
     return claims
 
 
+@router.get("/{nic}/enhanced-jobs")
+def list_enhanced_jobs_for_claim(nic: str) -> List[Dict[str, Any]]:
+    """Return all low-light enhanced photo jobs for a given NIC, newest first."""
+    from app.services.r2 import R2Service
+    r2 = R2Service()
+    if not r2.is_configured:
+        return []
+    try:
+        return r2.list_enhanced_jobs_for_nic(nic)
+    except Exception:
+        return []
+
+
 @router.get("/{nic}/models")
 def list_models_for_claim(nic: str) -> List[Dict[str, Any]]:
     """Return all completed 3D models for a given NIC, newest first."""

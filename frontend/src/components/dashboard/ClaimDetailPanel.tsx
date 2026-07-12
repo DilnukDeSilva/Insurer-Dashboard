@@ -7,7 +7,7 @@ import { PipelineSteps } from "./PipelineSteps";
 
 const API = "http://localhost:8080/api";
 
-type ModelState = "idle" | "generating" | "ready" | "error";
+type ModelState = "idle" | "generating" | "ready" | "error" | "low_light";
 type Step = { key: string; label: string; status: "pending" | "running" | "done" | "failed" };
 type SavedModel = { job_id: string; created_at: string };
 
@@ -67,10 +67,13 @@ export function ClaimDetailPanel({ claim }: { claim: Claim }) {
   const [showUserVerification, setShowUserVerification] = useState(false);
   const [showThirdParty, setShowThirdParty] = useState(false);
   const [showLocation, setShowLocation] = useState(false);
+  const [showEnhanced, setShowEnhanced] = useState(false);
 
   const [modelState, setModelState] = useState<ModelState>("idle");
   const [splatUrl, setSplatUrl] = useState<string | undefined>(undefined);
   const [steps, setSteps] = useState<Step[]>([]);
+  const [enhancedPhotos, setEnhancedPhotos] = useState<string[]>([]);
+  const [enhancedJobId, setEnhancedJobId] = useState<string | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const [existingModels, setExistingModels] = useState<SavedModel[]>([]);
@@ -82,14 +85,26 @@ export function ClaimDetailPanel({ claim }: { claim: Claim }) {
       .then((models: SavedModel[]) => setExistingModels(models))
       .catch(() => {});
 
+  const fetchEnhancedJobs = (nic: string) =>
+    fetch(`${API}/claims/${encodeURIComponent(nic)}/enhanced-jobs`)
+      .then((r) => (r.ok ? r.json() : []))
+      .then((jobs: SavedModel[]) => {
+        if (jobs.length > 0) setEnhancedJobId(jobs[0].job_id);
+      })
+      .catch(() => {});
+
   useEffect(() => {
     setModelState("idle");
     setSplatUrl(undefined);
     setSteps([]);
     setExistingModels([]);
     setShowModelPicker(false);
+    setEnhancedPhotos([]);
+    setEnhancedJobId(null);
+    setShowEnhanced(false);
     if (pollRef.current) clearInterval(pollRef.current);
     fetchModels(claim.nic);
+    fetchEnhancedJobs(claim.nic);
   }, [claim.nic]);
 
   async function handleGenerateModel() {
@@ -97,6 +112,7 @@ export function ClaimDetailPanel({ claim }: { claim: Claim }) {
     setSplatUrl(undefined);
     setSteps([
       { key: "download", label: "Downloading images",             status: "pending" },
+      { key: "enhance",  label: "Enhancing image brightness",     status: "pending" },
       { key: "colmap",   label: "Structure from Motion (COLMAP)", status: "pending" },
       { key: "train",    label: "Training Gaussian Splat",         status: "pending" },
       { key: "export",   label: "Exporting splat model",          status: "pending" },
@@ -126,6 +142,10 @@ export function ClaimDetailPanel({ claim }: { claim: Claim }) {
           setSplatUrl(`${API}/pipeline/jobs/${job_id}/splat`);
           setModelState("ready");
           fetchModels(claim.nic);
+        } else if (data.overall === "low_light") {
+          clearInterval(pollRef.current!);
+          setModelState("low_light");
+          setEnhancedJobId(job_id);
         } else if (data.overall === "failed") {
           clearInterval(pollRef.current!);
           setModelState("error");
@@ -222,6 +242,21 @@ export function ClaimDetailPanel({ claim }: { claim: Claim }) {
             {modelState === "generating" && (
               <span className="model-generating">Generating…</span>
             )}
+            {enhancedJobId && modelState !== "generating" && (
+              <button
+                type="button"
+                className="btn-enhanced"
+                onClick={async () => {
+                  if (enhancedPhotos.length === 0) {
+                    const res = await fetch(`${API}/pipeline/jobs/${enhancedJobId}/enhanced-photos`);
+                    if (res.ok) setEnhancedPhotos(await res.json());
+                  }
+                  setShowEnhanced(true);
+                }}
+              >
+                View Enhanced Photos
+              </button>
+            )}
             {modelState === "error" && (
               <button type="button" className="btn-inspect" onClick={handleGenerateModel}>
                 Retry 3D Model
@@ -314,6 +349,34 @@ export function ClaimDetailPanel({ claim }: { claim: Claim }) {
               entry={claim.locations?.report_submitted}
             />
           </div>
+        </div>
+      )}
+
+      {/* ── Enhanced Photos overlay (low-light) ───────────── */}
+      {showEnhanced && (
+        <div className="accident-images">
+          <div className="accident-images__header">
+            <h3>Enhanced Photos <span className="enhanced-badge">Zero-DCE</span></h3>
+            <button type="button" onClick={() => setShowEnhanced(false)}>×</button>
+          </div>
+          <div className="enhanced-notice">
+            Photos were too dark for 3D reconstruction. Zero-DCE neural enhancement has been applied.
+          </div>
+          {enhancedPhotos.length === 0 ? (
+            <div className="enhanced-loading">Loading enhanced photos…</div>
+          ) : (
+            <div className="enhanced-grid">
+              {enhancedPhotos.map((url, i) => (
+                <img
+                  key={i}
+                  src={url}
+                  alt={`Enhanced photo ${i + 1}`}
+                  className="enhanced-img"
+                  onClick={() => window.open(url, "_blank")}
+                />
+              ))}
+            </div>
+          )}
         </div>
       )}
     </section>

@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 
-type StepStatus = "pending" | "running" | "done" | "failed";
+type StepStatus = "pending" | "running" | "done" | "failed" | "skipped";
 
 type Step = {
   key: string;
@@ -12,7 +12,7 @@ type Step = {
 
 type PipelineStepsProps = {
   steps: Step[];
-  modelState: "idle" | "generating" | "ready" | "error";
+  modelState: "idle" | "generating" | "ready" | "error" | "low_light";
 };
 
 function formatDuration(seconds: number): string {
@@ -26,6 +26,7 @@ function StepIcon({ status }: { status: StepStatus }) {
   if (status === "done")    return <span className="ps-icon ps-icon--done">✓</span>;
   if (status === "running") return <span className="ps-icon ps-icon--running">◉</span>;
   if (status === "failed")  return <span className="ps-icon ps-icon--failed">✕</span>;
+  if (status === "skipped") return <span className="ps-icon ps-icon--skipped">—</span>;
   return <span className="ps-icon ps-icon--pending">○</span>;
 }
 
@@ -62,15 +63,17 @@ export function PipelineSteps({ steps, modelState }: PipelineStepsProps) {
   const running = steps.find((s) => s.status === "running");
   const doneCount = steps.filter((s) => s.status === "done").length;
   const failed = steps.some((s) => s.status === "failed");
+  const isLowLight = modelState === "low_light";
 
   const headerLabel =
-    modelState === "ready"   ? "3D model ready" :
-    modelState === "error"   ? "Pipeline failed" :
-    running                  ? running.label :
+    modelState === "ready"     ? "3D model ready" :
+    modelState === "error"     ? "Pipeline failed" :
+    modelState === "low_light" ? "Low light — enhanced photos ready" :
+    running                    ? running.label :
     "Preparing…";
 
   return (
-    <div className={`ps-float ${failed ? "ps-float--error" : modelState === "ready" ? "ps-float--ready" : ""}`}>
+    <div className={`ps-float ${failed ? "ps-float--error" : modelState === "ready" ? "ps-float--ready" : isLowLight ? "ps-float--low-light" : ""}`}>
       <div className="ps-float__header" onClick={() => setMinimized((v) => !v)}>
         <span className="ps-float__title">
           {modelState === "generating" && <span className="ps-float__dot" />}
