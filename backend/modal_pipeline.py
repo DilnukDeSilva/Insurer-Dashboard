@@ -118,6 +118,7 @@ def run_pipeline(
 
     steps = [
         {"key": "download", "status": "running",  "started_at": now()},
+        {"key": "enhance",  "status": "pending"},
         {"key": "colmap",   "status": "pending"},
         {"key": "train",    "status": "pending"},
         {"key": "export",   "status": "pending"},
@@ -141,7 +142,234 @@ def run_pipeline(
         steps[1].update({"status": "running", "started_at": now()})
         put_status(steps, "running")
 
-        # ── 2. COLMAP + transforms.json ─────────────────────────────────────
+        # ── 2. Enhance image brightness if dark ────────────────────────────
+        #
+        # Brightness tiers (mean pixel value out of 255):
+        #
+        #   < LOW_LIGHT (50) → SKIP 3D entirely.
+        #                       Run Zero-DCE, upload enhanced photos to R2,
+        #                       return "low_light" status. Frontend shows
+        #                       the enhanced photos instead of a 3D model.
+        #                       COLMAP cannot find enough features in photos
+        #                       this dark even after enhancement.
+        #
+        #   < VERY_DARK (60) → Run Zero-DCE, then continue to COLMAP/train.
+        #                       Photos are dark but may still have enough
+        #                       texture for reconstruction after enhancement.
+        #
+        #   < DARK (100)     → Gamma correction only, then continue to 3D.
+        #                       Photos are moderately dark (dim garage, dusk).
+        #
+        #   ≥ 100            → No enhancement, continue to 3D normally.
+        #
+        import math as _math
+        import urllib.request as _urlreq
+        import numpy as _np
+        from PIL import Image, ImageStat
+
+        LOW_LIGHT = 50.0   # mean < 50  → too dark for 3D, enhanced photos only
+        VERY_DARK = 60.0   # mean < 60  → Zero-DCE then attempt 3D
+        DARK      = 100.0  # mean < 100 → gamma correction then attempt 3D
+        TARGET    = 140.0  # target mean brightness after enhancement
+
+        image_files = sorted([
+            f for f in images_dir.iterdir()
+            if f.suffix.lower() in (".jpg", ".jpeg", ".png", ".webp")
+        ])
+
+        if image_files:
+            sample = image_files[:: max(1, len(image_files) // 6)][:6]
+            means = [ImageStat.Stat(Image.open(p).convert("L")).mean[0] for p in sample]
+            overall_mean = sum(means) / len(means)
+            print(f"[pipeline] Mean image brightness: {overall_mean:.1f}/255")
+
+            def _gamma_lut(mean: float, target: float) -> bytes:
+                g = _math.log(target / 255.0) / _math.log(max(mean, 1.0) / 255.0)
+                g = max(0.4, min(g, 2.5))
+                return bytes([min(255, int((i / 255.0) ** (1.0 / g) * 255)) for i in range(256)])
+
+            def _apply_gamma(files, lut: bytes) -> None:
+                for p in files:
+                    img = Image.open(p).convert("RGB")
+                    img = img.point(lut * 3)
+                    kw = {"quality": 95} if p.suffix.lower() in (".jpg", ".jpeg") else {}
+                    img.save(p, **kw)
+
+            def _run_zero_dce(files) -> bool:
+                """Returns True on success, False on failure."""
+                try:
+                    import torch
+                    import torch.nn as _nn
+
+                    class _ZeroDCENet(_nn.Module):
+                        def __init__(self):
+                            super().__init__()
+                            n = 32
+                            self.relu = _nn.ReLU(inplace=True)
+                            self.e_conv1 = _nn.Conv2d(3,   n,   3, 1, 1, bias=True)
+                            self.e_conv2 = _nn.Conv2d(n,   n,   3, 1, 1, bias=True)
+                            self.e_conv3 = _nn.Conv2d(n,   n,   3, 1, 1, bias=True)
+                            self.e_conv4 = _nn.Conv2d(n,   n,   3, 1, 1, bias=True)
+                            self.e_conv5 = _nn.Conv2d(n*2, n,   3, 1, 1, bias=True)
+                            self.e_conv6 = _nn.Conv2d(n*2, n,   3, 1, 1, bias=True)
+                            self.e_conv7 = _nn.Conv2d(n*2, 24,  3, 1, 1, bias=True)
+
+                        def forward(self, x):
+                            x1 = self.relu(self.e_conv1(x))
+                            x2 = self.relu(self.e_conv2(x1))
+                            x3 = self.relu(self.e_conv3(x2))
+                            x4 = self.relu(self.e_conv4(x3))
+                            x5 = self.relu(self.e_conv5(torch.cat([x3, x4], 1)))
+                            x6 = self.relu(self.e_conv6(torch.cat([x2, x5], 1)))
+                            xr = torch.tanh(self.e_conv7(torch.cat([x1, x6], 1)))
+                            for r in torch.split(xr, 3, dim=1):
+                                x = x + r * (x.pow(2) - x)
+                            return x
+
+                    weights_path = Path("/tmp/zerodce_weights.pth")
+                    if not weights_path.exists():
+                        print("[pipeline] Downloading Zero-DCE weights (~8 MB)…")
+                        _urlreq.urlretrieve(
+                            "https://github.com/Li-Chongyi/Zero-DCE/raw/master"
+                            "/Zero-DCE_code/snapshots/Epoch99.pth",
+                            str(weights_path),
+                        )
+
+                    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+                    net = _ZeroDCENet().to(device)
+                    net.load_state_dict(
+                        torch.load(str(weights_path), map_location=device, weights_only=False)
+                    )
+                    net.eval()
+
+                    MAX_DIM = 1920
+                    with torch.no_grad():
+                        for p in files:
+                            img = Image.open(p).convert("RGB")
+                            W, H = img.size
+                            scale = min(1.0, MAX_DIM / max(W, H))
+                            proc = img.resize((int(W * scale), int(H * scale)), Image.LANCZOS) if scale < 1.0 else img
+
+                            arr = _np.array(proc, dtype=_np.float32) / 255.0
+                            t   = torch.from_numpy(arr).permute(2, 0, 1).unsqueeze(0).to(device)
+                            out = net(t).clamp(0.0, 1.0)
+                            out_arr = (out.squeeze(0).permute(1, 2, 0).cpu().numpy() * 255).astype(_np.uint8)
+                            enhanced = Image.fromarray(out_arr)
+
+                            if scale < 1.0:
+                                enhanced = enhanced.resize((W, H), Image.LANCZOS)
+
+                            kw = {"quality": 95} if p.suffix.lower() in (".jpg", ".jpeg") else {}
+                            enhanced.save(p, **kw)
+
+                            del t, out, out_arr
+                            if torch.cuda.is_available():
+                                torch.cuda.empty_cache()
+
+                    print(f"[pipeline] Zero-DCE complete ({len(files)} images)")
+                    return True
+                except Exception as _e:
+                    print(f"[pipeline] Zero-DCE failed ({_e})")
+                    return False
+
+            if overall_mean < LOW_LIGHT:
+                # ── Too dark for 3D — enhance photos and exit early ────────
+                #
+                # Two-stage enhancement targeting shadow regions specifically:
+                #   1. Zero-DCE      — neural net lifts shadows, restores structure
+                #   2. Shadow lift   — aggressively boosts dark pixels (0–100/255)
+                #                      while leaving bright pixels (180+/255) untouched.
+                #                      This lifts the car body / tire area without
+                #                      blowing out the background lights.
+                #
+                print(f"[pipeline] Critically dark (mean={overall_mean:.1f}) — low-light mode")
+
+                # Build shadow-lift LUT:
+                #   pixels 0–40%  brightness → gamma 2.0 boost (was 2.5 — reduced to limit noise)
+                #   pixels 40–70% brightness → gradually blend back to no change
+                #   pixels 70%+   brightness → no change (highlights preserved)
+                def _shadow_lift_lut() -> bytes:
+                    result = []
+                    for i in range(256):
+                        x = i / 255.0
+                        if x < 0.4:
+                            out = x ** (1.0 / 2.0)
+                        elif x < 0.7:
+                            t = (x - 0.4) / 0.3
+                            shadow_out = x ** (1.0 / 2.0)
+                            out = shadow_out * (1.0 - t) + x * t
+                        else:
+                            out = x
+                        result.append(min(255, int(out * 255)))
+                    return bytes(result)
+
+                from PIL import ImageFilter as _IF
+
+                # Stage 1: Zero-DCE (neural structure recovery)
+                _run_zero_dce(image_files)
+
+                # Stage 2: shadow lift — boosts dark areas, leaves highlights alone
+                shadow_lut = _shadow_lift_lut()
+                for p in image_files:
+                    img = Image.open(p).convert("RGB")
+                    img = img.point(shadow_lut * 3)
+                    img.save(p, **{"quality": 95} if p.suffix.lower() in (".jpg", ".jpeg") else {})
+
+                # Stage 3: noise reduction in YCbCr space
+                #
+                # Shadow lifting amplifies two types of sensor noise:
+                #   • Color noise  (purple/green grain) → lives in Cb/Cr channels
+                #                    → fix: Gaussian blur radius=3 on Cb and Cr
+                #   • Luminance noise (gray grain/speckle) → lives in Y channel
+                #                    → fix: MedianFilter(size=3) on Y
+                #                       Median is better than Gaussian here because it
+                #                       removes speckle while keeping edges sharp (car
+                #                       outline, door handles, damage edges stay crisp).
+                for p in image_files:
+                    img = Image.open(p).convert("YCbCr")
+                    y, cb, cr = img.split()
+                    y  = y.filter(_IF.MedianFilter(size=3))       # luminance: remove grain, keep edges
+                    cb = cb.filter(_IF.GaussianBlur(radius=3))    # color: remove purple/green cast
+                    cr = cr.filter(_IF.GaussianBlur(radius=3))
+                    img_out = Image.merge("YCbCr", (y, cb, cr)).convert("RGB")
+                    img_out.save(p, **{"quality": 95} if p.suffix.lower() in (".jpg", ".jpeg") else {})
+
+                print(f"[pipeline] Enhancement complete ({len(image_files)} images)")
+
+                # Upload enhanced photos to R2 so frontend can display them
+                for p in image_files:
+                    s3.upload_file(
+                        str(p), r2_bucket,
+                        f"jobs/{job_id}/enhanced/{p.name}",
+                    )
+                print(f"[pipeline] Uploaded {len(image_files)} enhanced photos to R2")
+
+                steps[1].update({"status": "done", "completed_at": now()})
+                for step in steps[2:]:
+                    step.update({"status": "skipped"})
+                put_status(steps, "low_light")
+                return {"low_light": True}
+
+            elif overall_mean < VERY_DARK:
+                # ── Zero-DCE then continue 3D pipeline ────────────────────
+                print("[pipeline] Very dark — running Zero-DCE then continuing to 3D")
+                if not _run_zero_dce(image_files):
+                    _apply_gamma(image_files, _gamma_lut(overall_mean, TARGET))
+
+            elif overall_mean < DARK:
+                # ── PIL gamma correction for moderately dark images ─────────
+                gamma_val = _math.log(TARGET / 255.0) / _math.log(max(overall_mean, 1.0) / 255.0)
+                print(f"[pipeline] Moderately dark — gamma correction γ={gamma_val:.2f}")
+                _apply_gamma(image_files, _gamma_lut(overall_mean, TARGET))
+
+            else:
+                print("[pipeline] Images well-lit — skipping enhancement")
+
+        steps[1].update({"status": "done", "completed_at": now()})
+        steps[2].update({"status": "running", "started_at": now()})
+        put_status(steps, "running")
+
+        # ── 3. COLMAP + transforms.json ─────────────────────────────────────
         processed_dir = Path("/tmp/pipeline/processed")
         colmap_db     = processed_dir / "colmap" / "database.db"
         colmap_sparse = processed_dir / "colmap" / "sparse"
@@ -192,11 +420,11 @@ def run_pipeline(
             "--colmap-model-path",  "colmap/sparse/0",
         ], label="ns-process-data (transforms.json)")
 
-        steps[1].update({"status": "done", "completed_at": now()})
-        steps[2].update({"status": "running", "started_at": now()})
+        steps[2].update({"status": "done", "completed_at": now()})
+        steps[3].update({"status": "running", "started_at": now()})
         put_status(steps, "running")
 
-        # ── 3. Train splatfacto (CUDA) ──────────────────────────────────────
+        # ── 4. Train splatfacto (CUDA) ──────────────────────────────────────
         train_dir = Path("/tmp/pipeline/train")
         train_dir.mkdir(parents=True, exist_ok=True)
 
@@ -218,11 +446,11 @@ def run_pipeline(
             label="ns-train splatfacto (CUDA)",
         )
 
-        steps[2].update({"status": "done", "completed_at": now()})
-        steps[3].update({"status": "running", "started_at": now()})
+        steps[3].update({"status": "done", "completed_at": now()})
+        steps[4].update({"status": "running", "started_at": now()})
         put_status(steps, "running")
 
-        # ── 4. Export splat.ply ─────────────────────────────────────────────
+        # ── 5. Export splat.ply ─────────────────────────────────────────────
         config_files = sorted(
             glob.glob(str(train_dir / "splat" / "splatfacto" / "*" / "config.yml"))
         )
@@ -265,7 +493,7 @@ def run_pipeline(
         splat_r2_key = f"jobs/{job_id}/splat.ply"
         s3.upload_file(str(ply_files[0]), r2_bucket, splat_r2_key)
 
-        steps[3].update({"status": "done", "completed_at": now()})
+        steps[4].update({"status": "done", "completed_at": now()})
         put_status(steps, "completed")
 
         return {"splat_key": splat_r2_key}

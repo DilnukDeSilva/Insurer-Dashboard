@@ -18,6 +18,7 @@ from app.services.r2 import R2Service
 
 STEPS = [
     ("download", "Downloading images"),
+    ("enhance",  "Enhancing image brightness"),
     ("colmap",   "Structure from Motion (COLMAP)"),
     ("train",    "Training Gaussian Splat"),
     ("export",   "Exporting splat model"),
@@ -148,12 +149,20 @@ class PipelineService:
                     message=str(exc),
                 )
 
-            # Success — read final status and download splat to local disk
+            # Success — read final status
             try:
                 r2_status = self.r2.read_status_json(job_id)
                 _merge_steps(status, r2_status)
             except Exception:
                 pass
+
+            # Low-light: pipeline exited early, no splat to download
+            if status.overall == PipelineJobStatus.LOW_LIGHT:
+                return PipelineJobResponse(
+                    job_id=job_id,
+                    status=PipelineJobStatus.LOW_LIGHT,
+                    message="Photos too dark for 3D — enhanced images available.",
+                )
 
             splat_local = settings.jobs_dir / job_id / "gs" / "splat" / "splat.ply"
             self.r2.download_file(f"jobs/{job_id}/splat.ply", splat_local)
@@ -188,12 +197,24 @@ class PipelineService:
 
 def _merge_steps(status: JobStatusResponse, r2_status: dict) -> None:
     """Overwrite in-memory step states with whatever Modal wrote to R2."""
+    overall = r2_status.get("overall", "")
+    if overall == "low_light":
+        status.overall = PipelineJobStatus.LOW_LIGHT
+    elif overall == "completed":
+        status.overall = PipelineJobStatus.COMPLETED
+    elif overall == "failed":
+        status.overall = PipelineJobStatus.FAILED
+
     r2_steps = {s["key"]: s for s in r2_status.get("steps", [])}
     for step in status.steps:
         if step.key not in r2_steps:
             continue
         rs = r2_steps[step.key]
-        step.status = StepStatus(rs.get("status", step.status.value))
+        raw = rs.get("status", step.status.value)
+        try:
+            step.status = StepStatus(raw)
+        except ValueError:
+            pass
         if rs.get("started_at"):
             step.started_at = rs["started_at"]
         if rs.get("completed_at"):

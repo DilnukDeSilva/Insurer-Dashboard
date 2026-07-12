@@ -74,6 +74,15 @@ def get_splat(job_id: str) -> FileResponse:
     )
 
 
+@router.get("/jobs/{job_id}/enhanced-photos")
+def get_enhanced_photos(job_id: str) -> list[str]:
+    """Return pre-signed URLs for Zero-DCE enhanced photos (low-light jobs)."""
+    try:
+        return pipeline_service.r2.list_enhanced_photos(job_id)
+    except Exception:
+        raise HTTPException(status_code=404, detail="No enhanced photos found for this job")
+
+
 @router.get("/jobs/{job_id}/model")
 def get_model(job_id: str) -> FileResponse:
     """Serve the GLB model (legacy) or redirect to splat."""
