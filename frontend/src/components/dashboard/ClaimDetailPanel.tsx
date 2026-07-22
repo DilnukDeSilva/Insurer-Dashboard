@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import type { Claim, ClaimLocationEntry } from "../../types/claim";
+import { useAuth } from "../../context/AuthContext";
 import { CompareViewCanvas } from "../three/CompareViewCanvas";
 import { AccidentImagesPanel } from "./AccidentImagesPanel";
 import { MediaViewerPanel } from "./MediaViewerPanel";
@@ -63,6 +64,8 @@ function LocationBlock({
 }
 
 export function ClaimDetailPanel({ claim }: { claim: Claim }) {
+  const { user } = useAuth();
+  const isStaff = user?.role === "staff";
   const [showImages, setShowImages] = useState(false);
   const [showUserVerification, setShowUserVerification] = useState(false);
   const [showThirdParty, setShowThirdParty] = useState(false);
@@ -226,20 +229,20 @@ export function ClaimDetailPanel({ claim }: { claim: Claim }) {
 
           {/* Right: action buttons */}
           <div className="claim-btns">
-            <button type="button" className="btn-approve">Approve</button>
-            <button type="button" className="btn-inspect">Require Inspection</button>
+            <button type="button" className="btn-approve" disabled={isStaff} title={isStaff ? "Read-only access" : undefined}>Approve</button>
+            <button type="button" className="btn-inspect" disabled={isStaff} title={isStaff ? "Read-only access" : undefined}>Require Inspection</button>
 
             {existingModels.length > 0 && modelState !== "generating" && (
               <button type="button" className="btn-approve" onClick={() => setShowModelPicker(true)}>
                 View 3D Model
               </button>
             )}
-            {modelState === "idle" && (
+            {!isStaff && modelState === "idle" && (
               <button type="button" className="btn-inspect" onClick={handleGenerateModel}>
                 {existingModels.length > 0 ? "Generate New Model" : "Generate 3D Model"}
               </button>
             )}
-            {modelState === "generating" && (
+            {!isStaff && modelState === "generating" && (
               <span className="model-generating">Generating…</span>
             )}
             {enhancedJobId && modelState !== "generating" && (
@@ -257,7 +260,7 @@ export function ClaimDetailPanel({ claim }: { claim: Claim }) {
                 View Enhanced Photos
               </button>
             )}
-            {modelState === "error" && (
+            {!isStaff && modelState === "error" && (
               <button type="button" className="btn-inspect" onClick={handleGenerateModel}>
                 Retry 3D Model
               </button>
