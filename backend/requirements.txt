@@ -7,6 +7,12 @@ python-multipart>=0.0.20
 boto3>=1.35.0
 modal>=1.0.0
 
+# Auth & database
+motor>=3.3.0
+passlib[bcrypt]>=1.7.4
+bcrypt==3.2.2
+python-jose[cryptography]>=3.3.0
+
 # Zero-DCE inference
 torch>=2.0.0
 numpy>=1.24.0

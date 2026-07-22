@@ -84,6 +84,57 @@
   color: var(--color-text-secondary);
 }
 
+.dash-header__admin-btn {
+  padding: 0.3rem 0.85rem;
+  border: 1px solid var(--color-brand);
+  border-radius: var(--radius-pill);
+  background: none;
+  color: var(--color-brand);
+  font-size: 0.78rem;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.dash-header__admin-btn:hover {
+  background: var(--color-brand-bg);
+}
+
+.dash-header__role-badge {
+  padding: 0.18rem 0.6rem;
+  border-radius: var(--radius-pill);
+  font-size: 0.7rem;
+  font-weight: 600;
+  text-transform: capitalize;
+}
+
+.dash-header__role-badge--admin { background: #fff7ed; color: var(--color-brand); }
+.dash-header__role-badge--agent { background: #dbeafe; color: #1d4ed8; }
+.dash-header__role-badge--staff { background: #f3f4f6; color: #6b7280; }
+
+.dash-header__logout {
+  padding: 0.28rem 0.75rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-pill);
+  background: none;
+  color: var(--color-text-muted);
+  font-size: 0.75rem;
+  font-family: inherit;
+  cursor: pointer;
+}
+
+.dash-header__logout:hover {
+  border-color: #dc2626;
+  color: #dc2626;
+}
+
+.btn-approve:disabled,
+.btn-inspect:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
 .dash-header__avatar {
   width: 36px;
   height: 36px;

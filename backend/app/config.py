@@ -24,6 +24,12 @@ class Settings(BaseSettings):
     r2_secret_access_key: Optional[str] = None
     r2_bucket_name: Optional[str] = None
 
+    mongodb_uri: str = "mongodb://localhost:27017"
+    mongodb_db_name: str = "insurer_dashboard"
+    jwt_secret_key: str = "change-me-in-production-use-a-long-random-string"
+    jwt_algorithm: str = "HS256"
+    jwt_expire_minutes: int = 480
+
     @property
     def uploads_dir(self) -> Path:
         return self.data_dir / "uploads"

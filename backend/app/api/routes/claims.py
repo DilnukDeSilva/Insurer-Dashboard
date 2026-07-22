@@ -6,6 +6,7 @@ from typing import Any, Dict, List, Optional
 import boto3
 from botocore.client import Config
 from fastapi import APIRouter, Depends, HTTPException
+from app.core.dependencies import get_current_user
 
 from app.config import Settings, settings
 
@@ -47,7 +48,7 @@ def _presign(s3, bucket: str, key: str) -> str:
 
 
 @router.get("")
-def list_claims() -> List[Dict[str, Any]]:
+async def list_claims(_: dict = Depends(get_current_user)) -> List[Dict[str, Any]]:
     s = settings
     s3 = _s3_client(s)
     bucket = s.r2_bucket_name
