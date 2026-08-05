@@ -62,3 +62,128 @@ class R2Service:
             downloaded.append(local_path)
 
         return downloaded
+
+    def upload_file(self, local_path: Path, r2_key: str) -> None:
+        """Upload a local file to R2 at the given key."""
+        self.client.upload_file(str(local_path), self.bucket, r2_key)
+
+    def download_file(self, r2_key: str, local_path: Path) -> None:
+        """Download a single R2 object to a local path."""
+        local_path.parent.mkdir(parents=True, exist_ok=True)
+        self.client.download_file(self.bucket, r2_key, str(local_path))
+
+    def read_status_json(self, job_id: str) -> dict:
+        """Read the step-progress JSON written by the Modal function."""
+        response = self.client.get_object(
+            Bucket=self.bucket,
+            Key=f"jobs/{job_id}/status.json",
+        )
+        return __import__("json").loads(response["Body"].read())
+
+    def write_job_meta(self, job_id: str, nic: str, customer: str, created_at: str) -> None:
+        """Write meta.json so this job can later be looked up by NIC."""
+        import json as _json
+        body = _json.dumps({"nic": nic, "customer": customer, "created_at": created_at})
+        self.client.put_object(
+            Bucket=self.bucket,
+            Key=f"jobs/{job_id}/meta.json",
+            Body=body.encode(),
+            ContentType="application/json",
+        )
+
+    def list_enhanced_jobs_for_nic(self, nic: str) -> list[dict]:
+        """Return all jobs that have enhanced photos for a given NIC, newest first."""
+        import json as _json
+
+        resp = self.client.list_objects_v2(
+            Bucket=self.bucket,
+            Prefix="jobs/",
+            Delimiter="/",
+        )
+
+        results = []
+        for prefix_obj in resp.get("CommonPrefixes", []):
+            job_id = prefix_obj["Prefix"].rstrip("/").split("/")[-1]
+
+            try:
+                meta_resp = self.client.get_object(
+                    Bucket=self.bucket, Key=f"jobs/{job_id}/meta.json"
+                )
+                meta = _json.loads(meta_resp["Body"].read())
+            except Exception:
+                continue
+
+            if meta.get("nic") != nic:
+                continue
+
+            # Only include jobs that actually have enhanced photos
+            check = self.client.list_objects_v2(
+                Bucket=self.bucket,
+                Prefix=f"jobs/{job_id}/enhanced/",
+                MaxKeys=1,
+            )
+            if not check.get("Contents"):
+                continue
+
+            results.append({
+                "job_id": job_id,
+                "created_at": meta.get("created_at", ""),
+            })
+
+        results.sort(key=lambda x: x["created_at"], reverse=True)
+        return results
+
+    def list_enhanced_photos(self, job_id: str) -> list[str]:
+        """Return pre-signed URLs for all enhanced photos stored under jobs/{job_id}/enhanced/."""
+        prefix = f"jobs/{job_id}/enhanced/"
+        resp = self.client.list_objects_v2(Bucket=self.bucket, Prefix=prefix)
+        urls = []
+        for obj in resp.get("Contents", []):
+            if obj["Key"].endswith("/"):
+                continue
+            url = self.client.generate_presigned_url(
+                "get_object",
+                Params={"Bucket": self.bucket, "Key": obj["Key"]},
+                ExpiresIn=3600,
+            )
+            urls.append(url)
+        return urls
+
+    def list_models_for_nic(self, nic: str) -> list[dict]:
+        """Return all completed jobs (have splat.ply) for a given NIC, newest first."""
+        import json as _json
+
+        resp = self.client.list_objects_v2(
+            Bucket=self.bucket,
+            Prefix="jobs/",
+            Delimiter="/",
+        )
+
+        results = []
+        for prefix_obj in resp.get("CommonPrefixes", []):
+            job_id = prefix_obj["Prefix"].rstrip("/").split("/")[-1]
+
+            try:
+                meta_resp = self.client.get_object(
+                    Bucket=self.bucket, Key=f"jobs/{job_id}/meta.json"
+                )
+                meta = _json.loads(meta_resp["Body"].read())
+            except Exception:
+                continue
+
+            if meta.get("nic") != nic:
+                continue
+
+            try:
+                self.client.head_object(Bucket=self.bucket, Key=f"jobs/{job_id}/splat.ply")
+            except Exception:
+                continue
+
+            results.append({
+                "job_id": job_id,
+                "created_at": meta.get("created_at", ""),
+                "customer": meta.get("customer", ""),
+            })
+
+        results.sort(key=lambda x: x["created_at"], reverse=True)
+        return results

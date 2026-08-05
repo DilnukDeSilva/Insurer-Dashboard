@@ -13,6 +13,8 @@ async def lifespan(_app: FastAPI):
     settings.uploads_dir.mkdir(parents=True, exist_ok=True)
     settings.jobs_dir.mkdir(parents=True, exist_ok=True)
     yield
+    from app.db.mongo import close_client
+    await close_client()
 
 
 app = FastAPI(

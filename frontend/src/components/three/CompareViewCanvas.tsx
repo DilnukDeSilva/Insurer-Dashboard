@@ -12,6 +12,7 @@ import {
 import * as THREE from "three";
 import { DamagedCar, ReferenceCar } from "./CarModels";
 import { ComparisonLines } from "./ComparisonLines";
+import { GaussianSplatViewer } from "./GaussianSplatViewer";
 
 function GeneratedModel({ url }: { url: string }) {
   const { scene } = useGLTF(url);
@@ -97,53 +98,65 @@ function CompareScene({ glbUrl }: { glbUrl?: string }) {
 }
 
 type CompareViewCanvasProps = {
-  minimized?: boolean;
-  onToggleMinimize?: () => void;
   glbUrl?: string;
+  splatUrl?: string;
 };
 
-function downloadGlb(url: string) {
+function downloadFile(url: string, filename: string) {
   const a = document.createElement("a");
   a.href = url;
-  a.download = "model.glb";
+  a.download = filename;
   a.click();
 }
 
-export function CompareViewCanvas({
-  minimized = false,
-  onToggleMinimize,
-  glbUrl,
-}: CompareViewCanvasProps) {
+export function CompareViewCanvas({ glbUrl, splatUrl }: CompareViewCanvasProps) {
+  const hasModel = !!(splatUrl || glbUrl);
+
   return (
-    <div className={`compare-view ${minimized ? "compare-view--min" : ""}`}>
+    <div className="compare-view">
       <div className="compare-view__header">
         <h3 className="compare-view__title">
-          {glbUrl ? "Generated 3D Model" : "Compare view"}
+          {hasModel ? "Generated 3D Model" : "Compare view"}
         </h3>
-        {glbUrl && (
+        {splatUrl && (
           <button
             type="button"
             className="compare-view__download"
-            onClick={() => downloadGlb(glbUrl)}
+            onClick={() => downloadFile(splatUrl, "model.ply")}
+          >
+            Download PLY
+          </button>
+        )}
+        {!splatUrl && glbUrl && (
+          <button
+            type="button"
+            className="compare-view__download"
+            onClick={() => downloadFile(glbUrl, "model.glb")}
           >
             Download GLB
           </button>
         )}
       </div>
       <div className="compare-view__canvas-wrap">
-        <Canvas
-          shadows
-          camera={{ position: [0, 3.5, 10], fov: 42 }}
-          gl={{ antialias: true }}
-        >
-          <Suspense fallback={null}>
-            <CompareScene glbUrl={glbUrl} />
-          </Suspense>
-        </Canvas>
+        {splatUrl ? (
+          <GaussianSplatViewer url={splatUrl} />
+        ) : glbUrl ? (
+          <Canvas
+            shadows
+            camera={{ position: [0, 3.5, 10], fov: 42 }}
+            gl={{ antialias: true }}
+          >
+            <Suspense fallback={null}>
+              <CompareScene glbUrl={glbUrl} />
+            </Suspense>
+          </Canvas>
+        ) : (
+          <div className="compare-view__empty">
+            <p>No 3D model generated yet.</p>
+            <p>Click <strong>Generate 3D Model</strong> to start.</p>
+          </div>
+        )}
       </div>
-      <button type="button" className="compare-view__link" onClick={onToggleMinimize}>
-        {minimized ? "<Expand view>" : "<Minimize view>"}
-      </button>
     </div>
   );
 }

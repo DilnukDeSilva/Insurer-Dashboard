@@ -17,6 +17,7 @@ class PipelineJobStatus(str, Enum):
     RUNNING = "running"
     COMPLETED = "completed"
     FAILED = "failed"
+    LOW_LIGHT = "low_light"
 
 
 class StepStatus(str, Enum):
@@ -24,12 +25,15 @@ class StepStatus(str, Enum):
     RUNNING = "running"
     DONE = "done"
     FAILED = "failed"
+    SKIPPED = "skipped"
 
 
 class PipelineStep(BaseModel):
     key: str
     label: str
     status: StepStatus = StepStatus.PENDING
+    started_at: Optional[float] = None    # unix timestamp
+    completed_at: Optional[float] = None  # unix timestamp
 
 
 class JobStatusResponse(BaseModel):

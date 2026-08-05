@@ -2,10 +2,12 @@ import { useEffect, useMemo, useState } from "react";
 import { ClaimDetailPanel } from "../components/dashboard/ClaimDetailPanel";
 import { ClaimsListPanel } from "../components/dashboard/ClaimsListPanel";
 import { DashboardHeader } from "../components/dashboard/DashboardHeader";
+import { useAuth } from "../context/AuthContext";
 import { fetchClaims } from "../data/claims";
 import type { Claim } from "../types/claim";
 
-export function DashboardPage() {
+export function DashboardPage({ onAdminClick }: { onAdminClick?: () => void }) {
+  const { user } = useAuth();
   const [claims, setClaims] = useState<Claim[]>([]);
   const [selectedNic, setSelectedNic] = useState<string>("");
   const [search, setSearch] = useState("");
@@ -29,8 +31,8 @@ export function DashboardPage() {
 
   return (
     <div className="dashboard">
-      <DashboardHeader />
-      <p className="dashboard__company">Allianz Insurance Lanka Limited</p>
+      <DashboardHeader onAdminClick={onAdminClick} />
+      {user?.company_name && <p className="dashboard__company">{user.company_name}</p>}
 
       {loading && <p style={{ padding: "2rem" }}>Loading claims…</p>}
       {error && <p style={{ padding: "2rem", color: "red" }}>{error}</p>}

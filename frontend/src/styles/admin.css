@@ -1,0 +1,340 @@
+/* ─── Admin page layout ───────────────────────────────────── */
+
+.admin-page {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  background: var(--color-bg-page);
+  overflow: hidden;
+}
+
+.admin-page__company {
+  margin: 0;
+  padding: 0.5rem 1.5rem 0.75rem;
+  font-size: 1.35rem;
+  font-weight: 700;
+  color: var(--color-text);
+  background: var(--color-bg-page);
+}
+
+.admin-body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  padding: 0 1rem 1rem;
+  min-height: 0;
+  gap: 0;
+}
+
+/* ─── Tabs ────────────────────────────────────────────────── */
+
+.admin-tabs {
+  display: flex;
+  gap: 0;
+  border-bottom: 2px solid var(--color-border);
+  flex-shrink: 0;
+  margin-bottom: 1rem;
+}
+
+.admin-tab {
+  padding: 0.65rem 1.25rem;
+  border: none;
+  background: none;
+  font-size: 0.88rem;
+  font-family: inherit;
+  font-weight: 500;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -2px;
+  transition: color 0.15s, border-color 0.15s;
+}
+
+.admin-tab:hover {
+  color: var(--color-text);
+}
+
+.admin-tab--active {
+  color: var(--color-brand);
+  border-bottom-color: var(--color-brand);
+  font-weight: 600;
+}
+
+/* ─── Tab content panel ───────────────────────────────────── */
+
+.admin-panel {
+  flex: 1;
+  min-height: 0;
+  background: var(--color-bg-panel);
+  border-radius: var(--radius-lg);
+  border: 1.5px solid #1f2937;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.admin-panel__toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.85rem 1.1rem;
+  border-bottom: 1px solid var(--color-border);
+  flex-shrink: 0;
+}
+
+.admin-panel__toolbar h2 {
+  margin: 0;
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.admin-panel__table-wrap {
+  flex: 1;
+  overflow: auto;
+}
+
+/* ─── Admin table ─────────────────────────────────────────── */
+
+.admin-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.88rem;
+}
+
+.admin-table th {
+  text-align: left;
+  padding: 0.55rem 0.85rem;
+  font-weight: 500;
+  color: var(--color-text-muted);
+  border-bottom: 1px solid var(--color-border);
+  white-space: nowrap;
+  background: var(--color-bg-panel);
+  position: sticky;
+  top: 0;
+}
+
+.admin-table td {
+  padding: 0.6rem 0.85rem;
+  color: var(--color-text-secondary);
+  border-bottom: 1px solid var(--color-border-light);
+  vertical-align: middle;
+}
+
+.admin-table tbody tr:hover {
+  background: var(--color-brand-bg);
+}
+
+/* ─── Role badges ─────────────────────────────────────────── */
+
+.role-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.18rem 0.65rem;
+  border-radius: var(--radius-pill);
+  font-size: 0.72rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.role-badge--admin {
+  background: #fff7ed;
+  color: var(--color-brand);
+  border: 1px solid #fed7aa;
+}
+
+.role-badge--agent {
+  background: #dbeafe;
+  color: #1d4ed8;
+  border: 1px solid #bfdbfe;
+}
+
+.role-badge--staff {
+  background: #f3f4f6;
+  color: #6b7280;
+  border: 1px solid #e5e7eb;
+}
+
+/* ─── Status badge ────────────────────────────────────────── */
+
+.status-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.18rem 0.6rem;
+  border-radius: var(--radius-pill);
+  font-size: 0.72rem;
+  font-weight: 600;
+}
+
+.status-badge--active {
+  background: #dcfce7;
+  color: #15803d;
+}
+
+.status-badge--inactive {
+  background: #fee2e2;
+  color: #dc2626;
+}
+
+/* ─── Table action buttons ────────────────────────────────── */
+
+.tbl-btn {
+  padding: 0.22rem 0.65rem;
+  font-size: 0.75rem;
+  font-family: inherit;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-border);
+  background: var(--color-bg-panel);
+  color: var(--color-text-secondary);
+  cursor: pointer;
+}
+
+.tbl-btn:hover {
+  background: var(--color-brand-bg);
+  border-color: var(--color-brand);
+  color: var(--color-brand);
+}
+
+/* ─── Add button ──────────────────────────────────────────── */
+
+.btn-add {
+  padding: 0.4rem 1rem;
+  background: var(--color-brand);
+  color: #fff;
+  border: none;
+  border-radius: var(--radius-sm);
+  font-size: 0.82rem;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  transition: opacity 0.15s;
+}
+
+.btn-add:hover {
+  opacity: 0.88;
+}
+
+/* ─── Modal overlay ───────────────────────────────────────── */
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.35);
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.modal {
+  background: var(--color-bg-panel);
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--color-border);
+  width: min(480px, 94vw);
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 8px 40px rgba(0,0,0,0.18);
+}
+
+.modal__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.85rem 1.1rem;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.modal__header h3 {
+  margin: 0;
+  font-size: 0.95rem;
+  font-weight: 600;
+}
+
+.modal__header button {
+  border: none;
+  background: none;
+  font-size: 1.25rem;
+  cursor: pointer;
+  color: var(--color-text-muted);
+  line-height: 1;
+}
+
+.modal__body {
+  padding: 1.1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+}
+
+.modal__field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.modal__field label {
+  font-size: 0.8rem;
+  font-weight: 500;
+  color: var(--color-text-secondary);
+}
+
+.modal__field input,
+.modal__field select {
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  font-size: 0.88rem;
+  font-family: inherit;
+  outline: none;
+  background: var(--color-bg-panel);
+  color: var(--color-text);
+}
+
+.modal__field input:focus,
+.modal__field select:focus {
+  border-color: var(--color-brand);
+}
+
+.modal__error {
+  font-size: 0.8rem;
+  color: #dc2626;
+  background: #fee2e2;
+  border-radius: var(--radius-sm);
+  padding: 0.4rem 0.75rem;
+}
+
+.modal__footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.65rem;
+  padding: 0.85rem 1.1rem;
+  border-top: 1px solid var(--color-border);
+}
+
+.modal__cancel {
+  padding: 0.45rem 1rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: none;
+  font-size: 0.85rem;
+  font-family: inherit;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+}
+
+.modal__save {
+  padding: 0.45rem 1rem;
+  background: var(--color-brand);
+  color: #fff;
+  border: none;
+  border-radius: var(--radius-sm);
+  font-size: 0.85rem;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+}
+
+.modal__save:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
