@@ -28,17 +28,18 @@ class R2Service:
             settings.r2_bucket_name,
         ])
 
-    def download_accident_images(
-        self, customer_name: str, nic: str, dest_dir: Path
-    ) -> list[Path]:
+    def download_accident_images(self, folder: str, dest_dir: Path) -> list[Path]:
         """
-        Download accident images from R2 folder:
-        {customer_name} - {nic}/step-1-photos-uploaded/
+        Download accident images from R2 folder: {folder}/step-1-photos-uploaded/
+
+        `folder` is the claim's exact top-level R2 prefix (as returned by
+        GET /claims), not reconstructed from customer name + NIC — a claimant can
+        have multiple claims, each in its own folder distinguished by a timestamp.
         """
         if not self.is_configured:
             raise RuntimeError("R2 credentials are not configured.")
 
-        prefix = f"{customer_name} - {nic}/step-1-photos-uploaded/"
+        prefix = f"{folder}/step-1-photos-uploaded/"
         dest_dir.mkdir(parents=True, exist_ok=True)
 
         response = self.client.list_objects_v2(

@@ -23,6 +23,7 @@ def list_stages() -> list[PipelineStage]:
 @router.post("/jobs", response_model=PipelineJobResponse)
 def create_job(body: PipelineJobCreateRequest) -> PipelineJobResponse:
     return pipeline_service.create_job(
+        folder=body.folder or f"{body.customer_name} - {body.nic}",
         customer_name=body.customer_name,
         nic=body.nic,
     )

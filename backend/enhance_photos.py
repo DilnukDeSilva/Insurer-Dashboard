@@ -46,11 +46,9 @@ def enhance_from_r2(args):
     from app.config import settings
     from app.services.r2 import R2Service
 
-    claim = args.claim
-    if " - " not in claim:
-        sys.exit('Error: --claim must be in "Customer Name - NIC" format')
-
-    customer, nic = [p.strip() for p in claim.split(" - ", 1)]
+    folder = args.claim.strip()
+    if " - " not in folder:
+        sys.exit('Error: --claim must be in "Customer Name - NIC[ - timestamp]" format')
 
     r2 = R2Service()
     if not r2.is_configured:
@@ -60,8 +58,8 @@ def enhance_from_r2(args):
     images_dir = tmpdir / "images"
 
     try:
-        print(f"Downloading photos for '{claim}' from R2…")
-        downloaded = r2.download_accident_images(customer, nic, images_dir)
+        print(f"Downloading photos for '{folder}' from R2…")
+        downloaded = r2.download_accident_images(folder, images_dir)
         print(f"Downloaded {len(downloaded)} images.")
 
         svc = ZeroDCEService()
@@ -85,7 +83,7 @@ def enhance_from_r2(args):
                 config=Config(signature_version="s3v4"),
                 region_name="auto",
             )
-            prefix = f"{customer} - {nic}/step-1-photos-uploaded/"
+            prefix = f"{folder}/step-1-photos-uploaded/"
             print(f"\nRe-uploading enhanced images to R2 ({prefix})…")
             for f in sorted(images_dir.glob("*")):
                 s3.upload_file(str(f), settings.r2_bucket_name, f"{prefix}{f.name}")

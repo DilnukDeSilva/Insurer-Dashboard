@@ -23,6 +23,9 @@ export type ClaimLocations = {
 export type Claim = {
   nic: string;
   customer: string;
+  // The claim's exact R2 folder — the real unique id (a claimant can have
+  // multiple claims sharing the same nic/customer, each in its own folder).
+  folder: string;
   policyId: string;
   vehicleModel: string;
   vehicleRegNo?: string;
