@@ -3,15 +3,15 @@ import type { Claim } from "../../types/claim";
 
 type ClaimsListPanelProps = {
   claims: Claim[];
-  selectedNic: string;
+  selectedFolder: string;
   search: string;
   onSearchChange: (value: string) => void;
-  onSelect: (nic: string) => void;
+  onSelect: (folder: string) => void;
 };
 
 export function ClaimsListPanel({
   claims,
-  selectedNic,
+  selectedFolder,
   search,
   onSearchChange,
   onSelect,
@@ -70,9 +70,9 @@ export function ClaimsListPanel({
           <tbody>
             {filtered.map((claim) => (
               <tr
-                key={claim.nic}
-                className={claim.nic === selectedNic ? "claims-table__row--selected" : ""}
-                onClick={() => onSelect(claim.nic)}
+                key={claim.folder}
+                className={claim.folder === selectedFolder ? "claims-table__row--selected" : ""}
+                onClick={() => onSelect(claim.folder)}
               >
                 <td>{claim.nic}</td>
                 <td>{claim.customer}</td>

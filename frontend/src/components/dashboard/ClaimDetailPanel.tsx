@@ -125,7 +125,11 @@ export function ClaimDetailPanel({ claim }: { claim: Claim }) {
       const createRes = await fetch(`${API}/pipeline/jobs`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ nic: claim.nic, customer_name: claim.customer }),
+        body: JSON.stringify({
+          nic: claim.nic,
+          customer_name: claim.customer,
+          folder: claim.folder,
+        }),
       });
       if (!createRes.ok) throw new Error("Failed to create pipeline job");
       const { job_id } = await createRes.json();

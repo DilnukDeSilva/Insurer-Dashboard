@@ -65,8 +65,11 @@ async def list_claims(_: dict = Depends(get_current_user)) -> List[Dict[str, Any
         if " - " not in folder:
             continue
 
-        # Parse "Name - NIC" from folder name
-        parts = folder.split(" - ", 1)
+        # Parse "Name - NIC" or "Name - NIC - timestamp" from folder name. Newer
+        # folders carry a per-capture timestamp so repeat claims from the same NIC
+        # get distinct folders instead of merging; maxsplit=2 keeps the NIC segment
+        # in the same place either way.
+        parts = folder.split(" - ", 2)
         customer = parts[0].strip()
         nic = parts[1].strip()
 
@@ -158,6 +161,7 @@ async def list_claims(_: dict = Depends(get_current_user)) -> List[Dict[str, Any
         entry: Dict[str, Any] = {
             "nic": nic,
             "customer": customer,
+            "folder": folder,
             "policyId": metadata.get("policy-number") or "AL-VIP-00001",
             "vehicleModel": metadata.get("vehicle-model") or "Toyota Raize",
             "submittedDate": submitted_date,

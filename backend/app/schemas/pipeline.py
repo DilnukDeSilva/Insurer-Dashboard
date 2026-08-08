@@ -53,6 +53,10 @@ class ToolStatus(BaseModel):
 class PipelineJobCreateRequest(BaseModel):
     nic: str
     customer_name: str
+    # The claim's exact R2 folder (from GET /claims). Optional for backward
+    # compatibility with any client still on the old customer+NIC-only request
+    # shape; falls back to reconstructing the pre-timestamp folder name.
+    folder: Optional[str] = None
 
 
 class PipelineJobResponse(BaseModel):

@@ -9,7 +9,7 @@ import type { Claim } from "../types/claim";
 export function DashboardPage({ onAdminClick }: { onAdminClick?: () => void }) {
   const { user } = useAuth();
   const [claims, setClaims] = useState<Claim[]>([]);
-  const [selectedNic, setSelectedNic] = useState<string>("");
+  const [selectedFolder, setSelectedFolder] = useState<string>("");
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -18,15 +18,15 @@ export function DashboardPage({ onAdminClick }: { onAdminClick?: () => void }) {
     fetchClaims()
       .then((data) => {
         setClaims(data);
-        if (data.length > 0) setSelectedNic(data[0].nic);
+        if (data.length > 0) setSelectedFolder(data[0].folder);
       })
       .catch((e: unknown) => setError(e instanceof Error ? e.message : "Failed to load claims"))
       .finally(() => setLoading(false));
   }, []);
 
   const selectedClaim = useMemo(
-    () => claims.find((c) => c.nic === selectedNic) ?? claims[0],
-    [claims, selectedNic],
+    () => claims.find((c) => c.folder === selectedFolder) ?? claims[0],
+    [claims, selectedFolder],
   );
 
   return (
@@ -41,13 +41,13 @@ export function DashboardPage({ onAdminClick }: { onAdminClick?: () => void }) {
         <div className="dashboard__content">
           <ClaimsListPanel
             claims={claims}
-            selectedNic={selectedNic}
+            selectedFolder={selectedFolder}
             search={search}
             onSearchChange={setSearch}
-            onSelect={setSelectedNic}
+            onSelect={setSelectedFolder}
           />
           {selectedClaim && (
-            <ClaimDetailPanel claim={selectedClaim} key={selectedClaim.nic} />
+            <ClaimDetailPanel claim={selectedClaim} key={selectedClaim.folder} />
           )}
         </div>
       )}

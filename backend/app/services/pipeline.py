@@ -47,7 +47,7 @@ class PipelineService:
     # create_job — download images locally to verify they exist in R2,
     # then store the R2 prefix so run_job can pass it to Modal.
     # ------------------------------------------------------------------
-    def create_job(self, customer_name: str, nic: str) -> PipelineJobResponse:
+    def create_job(self, folder: str, customer_name: str, nic: str) -> PipelineJobResponse:
         job_id = str(uuid.uuid4())
         images_dir = settings.jobs_dir / job_id / "images"
 
@@ -58,13 +58,13 @@ class PipelineService:
         )
         _job_status[job_id] = status
 
-        r2_prefix = f"{customer_name} - {nic}/step-1-photos-uploaded/"
+        r2_prefix = f"{folder}/step-1-photos-uploaded/"
         _job_meta[job_id] = {"r2_prefix": r2_prefix}
 
         status.steps[0].status = StepStatus.RUNNING
         status.steps[0].started_at = time.time()
 
-        self.r2.download_accident_images(customer_name, nic, images_dir)
+        self.r2.download_accident_images(folder, images_dir)
         image_count = len(list(images_dir.glob("*")))
 
         status.steps[0].status = StepStatus.DONE
