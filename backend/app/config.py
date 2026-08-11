@@ -30,6 +30,9 @@ class Settings(BaseSettings):
     jwt_algorithm: str = "HS256"
     jwt_expire_minutes: int = 480
 
+    supabase_url: str = ""
+    supabase_key: str = ""
+
     @property
     def uploads_dir(self) -> Path:
         return self.data_dir / "uploads"
