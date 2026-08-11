@@ -1,13 +1,12 @@
 from typing import Optional
 
-from bson import ObjectId
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from app.core.dependencies import get_current_user
 from app.db.mongo import get_db
 from app.services.auth import create_access_token, verify_password
-from fastapi import Depends
+from app.services.supabase_service import sb_get
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -35,14 +34,15 @@ async def login(body: LoginRequest) -> TokenResponse:
 
     company_name = None
     if user.get("company_id"):
-        cid = user["company_id"]
         try:
-            cid = ObjectId(cid) if not isinstance(cid, ObjectId) else cid
+            rows = await sb_get(
+                "insurance_companies",
+                {"id": f"eq.{user['company_id']}", "select": "company_name"},
+            )
+            if rows:
+                company_name = rows[0]["company_name"]
         except Exception:
             pass
-        company = await db["companies"].find_one({"_id": cid})
-        if company:
-            company_name = company["name"]
 
     token = create_access_token({
         "sub": user["email"],

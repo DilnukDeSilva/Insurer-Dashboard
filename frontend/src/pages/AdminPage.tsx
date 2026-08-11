@@ -1,5 +1,4 @@
 import { useState } from "react";
-import { useAuth } from "../context/AuthContext";
 import { CompaniesTab } from "../components/admin/CompaniesTab";
 import { UsersTab } from "../components/admin/UsersTab";
 import { DashboardHeader } from "../components/dashboard/DashboardHeader";
@@ -8,7 +7,6 @@ type Tab = "companies" | "users";
 
 export function AdminPage({ onBack }: { onBack: () => void }) {
   const [activeTab, setActiveTab] = useState<Tab>("companies");
-  const { user } = useAuth();
 
   return (
     <div className="admin-page">
@@ -22,7 +20,7 @@ export function AdminPage({ onBack }: { onBack: () => void }) {
             className={`admin-tab${activeTab === "companies" ? " admin-tab--active" : ""}`}
             onClick={() => setActiveTab("companies")}
           >
-            Companies
+            Insurance Companies
           </button>
           <button
             type="button"
