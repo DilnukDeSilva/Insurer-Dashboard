@@ -14,6 +14,7 @@ from app.schemas.pipeline import (
     PipelineStep,
     StepStatus,
 )
+from app.services.claims_privacy_status import mark_capture_pending_review
 from app.services.r2 import R2Service
 
 STEPS = [
@@ -59,7 +60,12 @@ class PipelineService:
         _job_status[job_id] = status
 
         r2_prefix = f"{folder}/step-1-photos-uploaded/"
-        _job_meta[job_id] = {"r2_prefix": r2_prefix}
+        _job_meta[job_id] = {
+            "r2_prefix": r2_prefix,
+            "folder": folder,
+            "customer_name": customer_name,
+            "nic": nic,
+        }
 
         status.steps[0].status = StepStatus.RUNNING
         status.steps[0].started_at = time.time()
@@ -169,6 +175,17 @@ class PipelineService:
 
             status.overall = PipelineJobStatus.COMPLETED
             status.model_url = f"/api/pipeline/jobs/{job_id}/splat"
+
+            # Best-effort — a failure here must not affect the pipeline's own success
+            # response, see claims_privacy_status.py.
+            try:
+                mark_capture_pending_review(
+                    nic=meta.get("nic", ""),
+                    customer_name=meta.get("customer_name", ""),
+                    folder=meta.get("folder", ""),
+                )
+            except Exception as exc:
+                print(f"[pipeline] mark_capture_pending_review failed: {exc}")
 
             return PipelineJobResponse(
                 job_id=job_id,

@@ -100,6 +100,7 @@ function CompareScene({ glbUrl }: { glbUrl?: string }) {
 type CompareViewCanvasProps = {
   glbUrl?: string;
   splatUrl?: string;
+  isLoading?: boolean;
 };
 
 function downloadFile(url: string, filename: string) {
@@ -109,7 +110,7 @@ function downloadFile(url: string, filename: string) {
   a.click();
 }
 
-export function CompareViewCanvas({ glbUrl, splatUrl }: CompareViewCanvasProps) {
+export function CompareViewCanvas({ glbUrl, splatUrl, isLoading }: CompareViewCanvasProps) {
   const hasModel = !!(splatUrl || glbUrl);
 
   return (
@@ -150,6 +151,11 @@ export function CompareViewCanvas({ glbUrl, splatUrl }: CompareViewCanvasProps) 
               <CompareScene glbUrl={glbUrl} />
             </Suspense>
           </Canvas>
+        ) : isLoading ? (
+          <div className="compare-view__empty">
+            <div className="compare-view__spinner" aria-label="Loading" />
+            <p>Checking for 3D models…</p>
+          </div>
         ) : (
           <div className="compare-view__empty">
             <p>No 3D model generated yet.</p>

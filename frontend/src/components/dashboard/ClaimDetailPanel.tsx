@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import type { Claim, ClaimLocationEntry } from "../../types/claim";
 import { useAuth } from "../../context/AuthContext";
+import { authHeaders } from "../../data/claims";
 import { CompareViewCanvas } from "../three/CompareViewCanvas";
 import { AccidentImagesPanel } from "./AccidentImagesPanel";
 import { MediaViewerPanel } from "./MediaViewerPanel";
@@ -66,6 +67,7 @@ function LocationBlock({
 export function ClaimDetailPanel({ claim }: { claim: Claim }) {
   const { user } = useAuth();
   const isStaff = user?.role === "staff";
+  const canApprove = user?.role === "admin" || user?.role === "agent";
   const [showImages, setShowImages] = useState(false);
   const [showUserVerification, setShowUserVerification] = useState(false);
   const [showThirdParty, setShowThirdParty] = useState(false);
@@ -81,12 +83,52 @@ export function ClaimDetailPanel({ claim }: { claim: Claim }) {
 
   const [existingModels, setExistingModels] = useState<SavedModel[]>([]);
   const [showModelPicker, setShowModelPicker] = useState(false);
+  const [modelsLoading, setModelsLoading] = useState(true);
 
-  const fetchModels = (nic: string) =>
-    fetch(`${API}/claims/${encodeURIComponent(nic)}/models`)
+  const [approving, setApproving] = useState(false);
+  const [approved, setApproved] = useState(false);
+  const [showApproveConfirm, setShowApproveConfirm] = useState(false);
+
+  useEffect(() => {
+    setApproved(false);
+    setApproving(false);
+  }, [claim.folder]);
+
+  async function handleApprove() {
+    setApproving(true);
+    try {
+      const res = await fetch(`${API}/claims/approve`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...authHeaders() },
+        body: JSON.stringify({
+          nic: claim.nic,
+          customer_name: claim.customer,
+          folder: claim.folder,
+        }),
+      });
+      if (!res.ok) throw new Error("Failed to approve claim");
+      setApproved(true);
+    } catch {
+      alert("Could not approve this claim. Please try again.");
+    } finally {
+      setApproving(false);
+    }
+  }
+
+  const fetchModels = (nic: string) => {
+    setModelsLoading(true);
+    return fetch(`${API}/claims/${encodeURIComponent(nic)}/models`)
       .then((r) => (r.ok ? r.json() : []))
-      .then((models: SavedModel[]) => setExistingModels(models))
-      .catch(() => {});
+      .then((models: SavedModel[]) => {
+        setExistingModels(models);
+        if (models.length > 0) {
+          setSplatUrl(`${API}/pipeline/jobs/${models[0].job_id}/splat`);
+          setModelState("ready");
+        }
+      })
+      .catch(() => {})
+      .finally(() => setModelsLoading(false));
+  };
 
   const fetchEnhancedJobs = (nic: string) =>
     fetch(`${API}/claims/${encodeURIComponent(nic)}/enhanced-jobs`)
@@ -233,8 +275,19 @@ export function ClaimDetailPanel({ claim }: { claim: Claim }) {
 
           {/* Right: action buttons */}
           <div className="claim-btns">
-            <button type="button" className="btn-approve" disabled={isStaff} title={isStaff ? "Read-only access" : undefined}>Approve</button>
-            <button type="button" className="btn-inspect" disabled={isStaff} title={isStaff ? "Read-only access" : undefined}>Require Inspection</button>
+            {canApprove && (
+              <button
+                type="button"
+                className="btn-approve"
+                disabled={approving || approved}
+                onClick={() => setShowApproveConfirm(true)}
+              >
+                {approved ? "Approved ✓" : approving ? "Approving…" : "Approve"}
+              </button>
+            )}
+            {canApprove && (
+              <button type="button" className="btn-inspect">Require Inspection</button>
+            )}
 
             {existingModels.length > 0 && modelState !== "generating" && (
               <button type="button" className="btn-approve" onClick={() => setShowModelPicker(true)}>
@@ -276,7 +329,7 @@ export function ClaimDetailPanel({ claim }: { claim: Claim }) {
 
       {/* ── 3D canvas ─────────────────────────────────────── */}
       <div className="claim-detail__compare">
-        <CompareViewCanvas splatUrl={splatUrl} />
+        <CompareViewCanvas splatUrl={splatUrl} isLoading={modelsLoading} />
       </div>
 
       {/* ── Pipeline progress floating panel (keep as-is) ── */}
@@ -384,6 +437,38 @@ export function ClaimDetailPanel({ claim }: { claim: Claim }) {
               ))}
             </div>
           )}
+        </div>
+      )}
+      {/* ── Approve confirmation ──────────────────────────── */}
+      {showApproveConfirm && (
+        <div className="modal-backdrop" onClick={() => setShowApproveConfirm(false)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <div className="modal__header">
+              <h3>Confirm Approval</h3>
+              <button type="button" onClick={() => setShowApproveConfirm(false)}>×</button>
+            </div>
+            <div className="modal__body">
+              <p style={{ margin: 0, fontSize: "0.95rem", color: "var(--color-text-secondary)", lineHeight: 1.6 }}>
+                Are you sure you want to approve the claim for <strong style={{ color: "var(--color-text)" }}>{claim.customer}</strong>?
+              </p>
+              <p style={{ margin: "0.5rem 0 0", fontSize: "0.82rem", color: "var(--color-text-muted)" }}>
+                NIC: {claim.nic}
+              </p>
+            </div>
+            <div className="modal__footer">
+              <button type="button" className="modal__cancel" onClick={() => setShowApproveConfirm(false)}>
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="modal__save"
+                disabled={approving}
+                onClick={() => { setShowApproveConfirm(false); handleApprove(); }}
+              >
+                {approving ? "Approving…" : "Yes, Approve"}
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </section>
