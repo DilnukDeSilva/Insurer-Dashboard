@@ -125,6 +125,20 @@
   text-align: center;
 }
 
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.compare-view__spinner {
+  width: 32px;
+  height: 32px;
+  border: 3px solid var(--color-border);
+  border-top-color: var(--color-brand);
+  border-radius: 50%;
+  animation: spin 0.75s linear infinite;
+  margin-bottom: 0.25rem;
+}
+
 .compare-view__link {
   align-self: flex-end;
   margin: 0 0.75rem 0.5rem;
