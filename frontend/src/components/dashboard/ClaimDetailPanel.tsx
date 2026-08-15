@@ -294,7 +294,7 @@ export function ClaimDetailPanel({ claim }: { claim: Claim }) {
                 View 3D Model
               </button>
             )}
-            {!isStaff && modelState === "idle" && (
+            {!isStaff && (modelState === "idle" || modelState === "ready") && (
               <button type="button" className="btn-inspect" onClick={handleGenerateModel}>
                 {existingModels.length > 0 ? "Generate New Model" : "Generate 3D Model"}
               </button>
