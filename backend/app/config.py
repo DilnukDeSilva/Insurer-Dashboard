@@ -33,10 +33,6 @@ class Settings(BaseSettings):
     supabase_url: str = ""
     supabase_key: str = ""
 
-    # claims-privacy's Neon Postgres — written directly to flip a claim's status to
-    # "pending_review" once its 3D reconstruction finishes (see claims_privacy_status.py)
-    claims_privacy_database_url: Optional[str] = None
-
     @property
     def uploads_dir(self) -> Path:
         return self.data_dir / "uploads"

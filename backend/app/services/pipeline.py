@@ -179,7 +179,7 @@ class PipelineService:
             # Best-effort — a failure here must not affect the pipeline's own success
             # response, see claims_privacy_status.py.
             try:
-                mark_capture_pending_review(
+                await mark_capture_pending_review(
                     nic=meta.get("nic", ""),
                     customer_name=meta.get("customer_name", ""),
                     folder=meta.get("folder", ""),

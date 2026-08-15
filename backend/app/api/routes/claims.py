@@ -192,11 +192,10 @@ class ApproveClaimRequest(BaseModel):
 
 
 @router.post("/approve")
-def approve_claim(body: ApproveClaimRequest, _: dict = Depends(get_current_user)) -> Dict[str, bool]:
-    """Direct write into claims-privacy's Postgres (captures.status -> 'approved') —
-    same resolution mechanism as the pipeline-completion write, see
-    claims_privacy_status.py."""
-    ok = mark_capture_approved(nic=body.nic, customer_name=body.customer_name, folder=body.folder)
+async def approve_claim(body: ApproveClaimRequest, _: dict = Depends(get_current_user)) -> Dict[str, bool]:
+    """Writes captures.status -> 'approved' via Supabase REST — same resolution
+    mechanism as the pipeline-completion write, see claims_privacy_status.py."""
+    ok = await mark_capture_approved(nic=body.nic, customer_name=body.customer_name, folder=body.folder)
     if not ok:
         raise HTTPException(status_code=404, detail="Could not find a matching claim to approve.")
     return {"approved": True}
