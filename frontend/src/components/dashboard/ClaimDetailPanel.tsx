@@ -259,7 +259,7 @@ export function ClaimDetailPanel({ claim }: { claim: Claim }) {
             ) : (
               <button type="button" className="action-view action-view--disabled" disabled>
                 <span>3rd Party Details</span>
-                <span className="action-view__arrow action-view__arrow--na">N/A</span>
+                <span className="action-view__arrow action-view__arrow--na">Skipped</span>
               </button>
             )}
 
