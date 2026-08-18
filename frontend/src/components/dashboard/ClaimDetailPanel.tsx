@@ -24,8 +24,10 @@ function InfoRow({
 }) {
   return (
     <div className="irow">
-      <span className="irow__label">{label}</span>
-      <span className="irow__value">{value ?? ""}</span>
+      <div className="irow__header">
+        <span className="irow__label">{label}</span>
+        <span className="irow__value">{value ?? ""}</span>
+      </div>
       {passed !== undefined && (
         <span className={passed ? "badge--pass" : "badge--fail"}>
           {passed ? "✓  Passed" : "✗  Failed"}
@@ -58,13 +60,32 @@ function LocationBlock({
         <span className="location-row__sublabel">{sublabel}</span>
       </div>
       <span className="location-row__value">{address}</span>
-      {coords && <span className="location-row__coords">{coords}</span>}
+      {coords && entry?.gps_lat != null && entry?.gps_lng != null ? (
+        <a
+          href={`https://www.google.com/maps?q=${entry.gps_lat},${entry.gps_lng}`}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="location-row__coords-link"
+        >
+          {coords}
+        </a>
+      ) : null}
       <span className="location-row__time">{timestamp}</span>
     </div>
   );
 }
 
-export function ClaimDetailPanel({ claim }: { claim: Claim }) {
+export function ClaimDetailPanel({
+  claim,
+  expanded = false,
+  onToggleExpand,
+  isAnimating = false,
+}: {
+  claim: Claim;
+  expanded?: boolean;
+  onToggleExpand?: () => void;
+  isAnimating?: boolean;
+}) {
   const { user } = useAuth();
   const { activeJob, startPolling } = usePipelineJob();
   const isStaff = user?.role === "staff";
@@ -218,7 +239,7 @@ export function ClaimDetailPanel({ claim }: { claim: Claim }) {
   }
 
   return (
-    <section className="claim-detail">
+    <section className={`claim-detail${expanded ? " claim-detail--expanded" : ""}${isAnimating ? " claim-detail--animating" : ""}`}>
       {/* ── Top info section ──────────────────────────────── */}
       <div className="claim-info">
         <div className="claim-body">
@@ -353,7 +374,13 @@ export function ClaimDetailPanel({ claim }: { claim: Claim }) {
 
       {/* ── 3D canvas ─────────────────────────────────────── */}
       <div className="claim-detail__compare">
-        <CompareViewCanvas splatUrl={splatUrl} isLoading={modelsLoading} />
+        <CompareViewCanvas
+          splatUrl={splatUrl}
+          isLoading={modelsLoading}
+          expanded={expanded}
+          onToggleExpand={onToggleExpand}
+          isTransitioning={isAnimating}
+        />
       </div>
 
       {/* ── Overlays ──────────────────────────────────────── */}

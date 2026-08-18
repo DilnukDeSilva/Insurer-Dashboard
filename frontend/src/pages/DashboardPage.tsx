@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { ClaimDetailPanel } from "../components/dashboard/ClaimDetailPanel";
 import { ClaimsListPanel } from "../components/dashboard/ClaimsListPanel";
 import { DashboardHeader } from "../components/dashboard/DashboardHeader";
@@ -28,6 +28,16 @@ function DashboardInner({ onAdminClick }: { onAdminClick?: () => void }) {
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [expanded, setExpanded] = useState(false);
+  const [isAnimating, setIsAnimating] = useState(false);
+  const animTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const handleToggleExpand = () => {
+    if (animTimer.current) clearTimeout(animTimer.current);
+    setIsAnimating(true);
+    setExpanded((v) => !v);
+    animTimer.current = setTimeout(() => setIsAnimating(false), 420);
+  };
 
   useEffect(() => {
     fetchClaims()
@@ -53,16 +63,23 @@ function DashboardInner({ onAdminClick }: { onAdminClick?: () => void }) {
       {error && <p style={{ padding: "2rem", color: "red" }}>{error}</p>}
 
       {!loading && !error && (
-        <div className="dashboard__content">
+        <div className={`dashboard__content${expanded ? " dashboard__content--expanded" : ""}`}>
           <ClaimsListPanel
             claims={claims}
             selectedFolder={selectedFolder}
             search={search}
             onSearchChange={setSearch}
             onSelect={setSelectedFolder}
+            expanded={expanded}
           />
           {selectedClaim && (
-            <ClaimDetailPanel claim={selectedClaim} key={selectedClaim.folder} />
+            <ClaimDetailPanel
+              claim={selectedClaim}
+              key={selectedClaim.folder}
+              expanded={expanded}
+              onToggleExpand={handleToggleExpand}
+              isAnimating={isAnimating}
+            />
           )}
         </div>
       )}

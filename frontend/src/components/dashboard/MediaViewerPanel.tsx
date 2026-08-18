@@ -64,7 +64,18 @@ export function MediaViewerPanel({ title, urls, loading, visible, onClose }: Med
             {/* Left: per-photo location info */}
             <div className="accident-images__loc">
               <p className="ai-loc__label">Photo Location</p>
-              <p className="ai-loc__address">{active ? formatCoords(active) : "—"}</p>
+              {active && active.gps_lat != null && active.gps_lng != null ? (
+                <a
+                  href={`https://www.google.com/maps?q=${active.gps_lat},${active.gps_lng}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="ai-loc__coords-btn"
+                >
+                  {formatCoords(active)}
+                </a>
+              ) : (
+                <p className="ai-loc__address">{active ? formatCoords(active) : "—"}</p>
+              )}
               <div className="ai-loc__divider" />
               <p className="ai-loc__label">Photo Timestamp</p>
               <p className="ai-loc__value">{active ? formatCapturedAt(active.captured_at) : "—"}</p>
