@@ -1,17 +1,17 @@
-import { useState, useEffect, useRef } from "react";
-import type { Claim, ClaimLocationEntry } from "../../types/claim";
+import { useState, useEffect } from "react";
+import type { AccidentImage, Claim, ClaimLocationEntry } from "../../types/claim";
 import { useAuth } from "../../context/AuthContext";
 import { authHeaders } from "../../data/claims";
+import { usePipelineJob } from "../../context/PipelineJobContext";
 import { CompareViewCanvas } from "../three/CompareViewCanvas";
 import { AccidentImagesPanel } from "./AccidentImagesPanel";
 import { MediaViewerPanel } from "./MediaViewerPanel";
-import { PipelineSteps } from "./PipelineSteps";
 
 const API = "http://localhost:8080/api";
 
 type ModelState = "idle" | "generating" | "ready" | "error" | "low_light";
-type Step = { key: string; label: string; status: "pending" | "running" | "done" | "failed" };
 type SavedModel = { job_id: string; created_at: string };
+
 
 function InfoRow({
   label,
@@ -66,28 +66,52 @@ function LocationBlock({
 
 export function ClaimDetailPanel({ claim }: { claim: Claim }) {
   const { user } = useAuth();
+  const { activeJob, startPolling } = usePipelineJob();
   const isStaff = user?.role === "staff";
   const canApprove = user?.role === "admin" || user?.role === "agent";
+
   const [showImages, setShowImages] = useState(false);
   const [showUserVerification, setShowUserVerification] = useState(false);
   const [showThirdParty, setShowThirdParty] = useState(false);
   const [showLocation, setShowLocation] = useState(false);
   const [showEnhanced, setShowEnhanced] = useState(false);
 
-  const [modelState, setModelState] = useState<ModelState>("idle");
-  const [splatUrl, setSplatUrl] = useState<string | undefined>(undefined);
-  const [steps, setSteps] = useState<Step[]>([]);
-  const [enhancedPhotos, setEnhancedPhotos] = useState<string[]>([]);
-  const [enhancedJobId, setEnhancedJobId] = useState<string | null>(null);
-  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
-
+  // Local splat URL from existing models (pre-generated); context URL takes precedence when active job matches
+  const [localSplatUrl, setLocalSplatUrl] = useState<string | undefined>(undefined);
+  const [localEnhancedJobId, setLocalEnhancedJobId] = useState<string | null>(null);
   const [existingModels, setExistingModels] = useState<SavedModel[]>([]);
   const [showModelPicker, setShowModelPicker] = useState(false);
   const [modelsLoading, setModelsLoading] = useState(true);
 
+  // Local error flag for when the job fails to start (before polling begins)
+  const [startError, setStartError] = useState(false);
+  const [starting, setStarting] = useState(false);
+
+  // Photo data — lazily fetched when the user opens an image panel
+  const [photoData, setPhotoData] = useState<{
+    walkaround: AccidentImage[];
+    user_verification: AccidentImage[];
+    third_party: AccidentImage[];
+  } | null>(null);
+  const [photosLoading, setPhotosLoading] = useState(false);
+
+  const [enhancedPhotos, setEnhancedPhotos] = useState<string[]>([]);
   const [approving, setApproving] = useState(false);
   const [approved, setApproved] = useState(false);
   const [showApproveConfirm, setShowApproveConfirm] = useState(false);
+
+  // Whether the background context job belongs to this claim
+  const isActiveJobHere = activeJob?.nic === claim.nic;
+
+  // Derived values — context wins when there's an active job for this claim
+  const modelState: ModelState = startError
+    ? "error"
+    : isActiveJobHere
+      ? activeJob!.state
+      : localSplatUrl ? "ready" : "idle";
+
+  const splatUrl = (isActiveJobHere && activeJob!.splatUrl) ? activeJob!.splatUrl : localSplatUrl;
+  const enhancedJobId = (isActiveJobHere && activeJob!.enhancedJobId) ? activeJob!.enhancedJobId : localEnhancedJobId;
 
   useEffect(() => {
     setApproved(false);
@@ -122,8 +146,7 @@ export function ClaimDetailPanel({ claim }: { claim: Claim }) {
       .then((models: SavedModel[]) => {
         setExistingModels(models);
         if (models.length > 0) {
-          setSplatUrl(`${API}/pipeline/jobs/${models[0].job_id}/splat`);
-          setModelState("ready");
+          setLocalSplatUrl(`${API}/pipeline/jobs/${models[0].job_id}/splat`);
         }
       })
       .catch(() => {})
@@ -134,35 +157,40 @@ export function ClaimDetailPanel({ claim }: { claim: Claim }) {
     fetch(`${API}/claims/${encodeURIComponent(nic)}/enhanced-jobs`)
       .then((r) => (r.ok ? r.json() : []))
       .then((jobs: SavedModel[]) => {
-        if (jobs.length > 0) setEnhancedJobId(jobs[0].job_id);
+        if (jobs.length > 0) setLocalEnhancedJobId(jobs[0].job_id);
       })
       .catch(() => {});
 
+  async function ensurePhotosLoaded() {
+    if (photoData || photosLoading) return;
+    setPhotosLoading(true);
+    try {
+      const res = await fetch(`${API}/claims/${encodeURIComponent(claim.folder)}/photos`, {
+        headers: authHeaders(),
+      });
+      if (res.ok) setPhotoData(await res.json());
+    } finally {
+      setPhotosLoading(false);
+    }
+  }
+
   useEffect(() => {
-    setModelState("idle");
-    setSplatUrl(undefined);
-    setSteps([]);
+    setLocalSplatUrl(undefined);
+    setLocalEnhancedJobId(null);
     setExistingModels([]);
     setShowModelPicker(false);
     setEnhancedPhotos([]);
-    setEnhancedJobId(null);
     setShowEnhanced(false);
-    if (pollRef.current) clearInterval(pollRef.current);
+    setStartError(false);
+    setPhotoData(null);
+    setPhotosLoading(false);
     fetchModels(claim.nic);
     fetchEnhancedJobs(claim.nic);
   }, [claim.nic]);
 
   async function handleGenerateModel() {
-    setModelState("generating");
-    setSplatUrl(undefined);
-    setSteps([
-      { key: "download", label: "Downloading images",             status: "pending" },
-      { key: "enhance",  label: "Enhancing image brightness",     status: "pending" },
-      { key: "colmap",   label: "Structure from Motion (COLMAP)", status: "pending" },
-      { key: "train",    label: "Training Gaussian Splat",         status: "pending" },
-      { key: "export",   label: "Exporting splat model",          status: "pending" },
-    ]);
-
+    setStartError(false);
+    setStarting(true);
     try {
       const createRes = await fetch(`${API}/pipeline/jobs`, {
         method: "POST",
@@ -180,28 +208,12 @@ export function ClaimDetailPanel({ claim }: { claim: Claim }) {
         method: "POST",
       });
 
-      pollRef.current = setInterval(async () => {
-        const statusRes = await fetch(`${API}/pipeline/jobs/${job_id}/status`);
-        if (!statusRes.ok) return;
-        const data = await statusRes.json();
-        setSteps(data.steps ?? []);
-
-        if (data.overall === "completed") {
-          clearInterval(pollRef.current!);
-          setSplatUrl(`${API}/pipeline/jobs/${job_id}/splat`);
-          setModelState("ready");
-          fetchModels(claim.nic);
-        } else if (data.overall === "low_light") {
-          clearInterval(pollRef.current!);
-          setModelState("low_light");
-          setEnhancedJobId(job_id);
-        } else if (data.overall === "failed") {
-          clearInterval(pollRef.current!);
-          setModelState("error");
-        }
-      }, 4000);
+      // Hand off to the context — polling survives claim switches from here
+      startPolling(claim.nic, claim.vehicleRegNo ?? claim.nic, job_id);
     } catch {
-      setModelState("error");
+      setStartError(true);
+    } finally {
+      setStarting(false);
     }
   }
 
@@ -209,7 +221,6 @@ export function ClaimDetailPanel({ claim }: { claim: Claim }) {
     <section className="claim-detail">
       {/* ── Top info section ──────────────────────────────── */}
       <div className="claim-info">
-        {/* Detail rows + action buttons side by side */}
         <div className="claim-body">
           {/* Left: field rows */}
           <div className="claim-rows">
@@ -226,7 +237,7 @@ export function ClaimDetailPanel({ claim }: { claim: Claim }) {
               <button
                 type="button"
                 className="action-view"
-                onClick={() => setShowUserVerification(true)}
+                onClick={() => { void ensurePhotosLoaded(); setShowUserVerification(true); }}
               >
                 <span>User Verification Test</span>
                 <span className="action-view__arrow">View &gt;</span>
@@ -241,7 +252,7 @@ export function ClaimDetailPanel({ claim }: { claim: Claim }) {
             <button
               type="button"
               className="action-view"
-              onClick={() => setShowImages(true)}
+              onClick={() => { void ensurePhotosLoaded(); setShowImages(true); }}
             >
               <span>Accident Images</span>
               <span className="action-view__arrow">View &gt;</span>
@@ -251,7 +262,7 @@ export function ClaimDetailPanel({ claim }: { claim: Claim }) {
               <button
                 type="button"
                 className="action-view"
-                onClick={() => setShowThirdParty(true)}
+                onClick={() => { void ensurePhotosLoaded(); setShowThirdParty(true); }}
               >
                 <span>3rd Party Details</span>
                 <span className="action-view__arrow">View &gt;</span>
@@ -259,7 +270,7 @@ export function ClaimDetailPanel({ claim }: { claim: Claim }) {
             ) : (
               <button type="button" className="action-view action-view--disabled" disabled>
                 <span>3rd Party Details</span>
-                <span className="action-view__arrow action-view__arrow--na">Skipped</span>
+                <span className="action-view__arrow action-view__arrow--na">N/A</span>
               </button>
             )}
 
@@ -289,14 +300,28 @@ export function ClaimDetailPanel({ claim }: { claim: Claim }) {
               <button type="button" className="btn-inspect">Require Inspection</button>
             )}
 
-            {existingModels.length > 0 && modelState !== "generating" && (
-              <button type="button" className="btn-approve" onClick={() => setShowModelPicker(true)}>
-                View 3D Model
-              </button>
+            {modelState !== "generating" && (
+              modelsLoading ? (
+                <button type="button" className="btn-approve" disabled>
+                  <span className="btn-spinner" />Checking…
+                </button>
+              ) : existingModels.length > 0 ? (
+                <button type="button" className="btn-approve" onClick={() => setShowModelPicker(true)}>
+                  View 3D Model
+                </button>
+              ) : null
             )}
             {!isStaff && (modelState === "idle" || modelState === "ready") && (
-              <button type="button" className="btn-inspect" onClick={handleGenerateModel}>
-                {existingModels.length > 0 ? "Generate New Model" : "Generate 3D Model"}
+              <button
+                type="button"
+                className="btn-inspect"
+                onClick={handleGenerateModel}
+                disabled={starting}
+              >
+                {starting
+                  ? <><span className="btn-spinner" />Starting…</>
+                  : existingModels.length > 0 ? "Generate New Model" : "Generate 3D Model"
+                }
               </button>
             )}
             {!isStaff && modelState === "generating" && (
@@ -324,7 +349,6 @@ export function ClaimDetailPanel({ claim }: { claim: Claim }) {
             )}
           </div>
         </div>
-
       </div>
 
       {/* ── 3D canvas ─────────────────────────────────────── */}
@@ -332,25 +356,26 @@ export function ClaimDetailPanel({ claim }: { claim: Claim }) {
         <CompareViewCanvas splatUrl={splatUrl} isLoading={modelsLoading} />
       </div>
 
-      {/* ── Pipeline progress floating panel (keep as-is) ── */}
-      <PipelineSteps steps={steps} modelState={modelState} />
-
       {/* ── Overlays ──────────────────────────────────────── */}
       <AccidentImagesPanel
-        claim={claim}
+        nic={claim.nic}
+        images={photoData?.walkaround ?? []}
+        loading={photosLoading}
         visible={showImages}
         onClose={() => setShowImages(false)}
       />
       <MediaViewerPanel
         title="User Verification Test"
-        urls={claim.userVerificationPhotos}
+        urls={photoData?.user_verification ?? []}
+        loading={photosLoading}
         visible={showUserVerification}
         onClose={() => setShowUserVerification(false)}
         claim={claim}
       />
       <MediaViewerPanel
         title="3rd Party Details"
-        urls={claim.thirdPartyPhotos}
+        urls={photoData?.third_party ?? []}
+        loading={photosLoading}
         visible={showThirdParty}
         onClose={() => setShowThirdParty(false)}
         claim={claim}
@@ -370,8 +395,7 @@ export function ClaimDetailPanel({ claim }: { claim: Claim }) {
                 type="button"
                 className={`model-picker__item${splatUrl?.includes(m.job_id) ? " model-picker__item--active" : ""}`}
                 onClick={() => {
-                  setSplatUrl(`${API}/pipeline/jobs/${m.job_id}/splat`);
-                  setModelState("ready");
+                  setLocalSplatUrl(`${API}/pipeline/jobs/${m.job_id}/splat`);
                   setShowModelPicker(false);
                 }}
               >
@@ -439,6 +463,7 @@ export function ClaimDetailPanel({ claim }: { claim: Claim }) {
           )}
         </div>
       )}
+
       {/* ── Approve confirmation ──────────────────────────── */}
       {showApproveConfirm && (
         <div className="modal-backdrop" onClick={() => setShowApproveConfirm(false)}>

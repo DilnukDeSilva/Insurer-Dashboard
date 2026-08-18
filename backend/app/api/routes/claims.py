@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import asyncio
+import concurrent.futures
+import json as _json
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
@@ -30,8 +33,17 @@ def _s3_client(s: Settings):
     )
 
 
-def _parse_timestamp(ts_iso: Optional[str]) -> tuple[str, str]:
-    """Return (date_str, time_str) from an ISO-8601 UTC string."""
+def _s3_kwargs(s: Settings) -> dict:
+    return dict(
+        endpoint_url=s.r2_endpoint_url,
+        aws_access_key_id=s.r2_access_key_id,
+        aws_secret_access_key=s.r2_secret_access_key,
+        config=Config(signature_version="s3v4"),
+        region_name="auto",
+    )
+
+
+def _parse_timestamp(ts_iso: Optional[str]) -> tuple:
     if not ts_iso:
         return ("", "")
     try:
@@ -49,139 +61,111 @@ def _presign(s3, bucket: str, key: str) -> str:
     )
 
 
+def _process_folder(kwargs: dict, bucket: str, prefix: str) -> Optional[Dict[str, Any]]:
+    """Process a single claim folder. Runs in a thread pool — no await."""
+    folder = prefix.rstrip("/")
+    if " - " not in folder:
+        return None
+
+    parts = folder.split(" - ", 2)
+    customer = parts[0].strip()
+    nic = parts[1].strip()
+
+    s3 = boto3.client("s3", **kwargs)
+
+    # Metadata from the first step-1 photo only (one head_object, not one per photo)
+    metadata: Dict[str, str] = {}
+    step1_first = s3.list_objects_v2(
+        Bucket=bucket,
+        Prefix=f"{folder}/step-1-photos-uploaded/",
+        MaxKeys=1,
+    )
+    if step1_first.get("Contents"):
+        head = s3.head_object(Bucket=bucket, Key=step1_first["Contents"][0]["Key"])
+        metadata = head.get("Metadata", {})
+
+    # Existence checks only — no listing all objects, no head_object per photo
+    uv = s3.list_objects_v2(
+        Bucket=bucket,
+        Prefix=f"{folder}/step-2-fraud-validation/user-verification/",
+        MaxKeys=1,
+    )
+    tp = s3.list_objects_v2(
+        Bucket=bucket,
+        Prefix=f"{folder}/step-2-fraud-validation/third-party/",
+        MaxKeys=1,
+    )
+
+    # locations.json
+    locations: Dict[str, Any] = {}
+    try:
+        loc_obj = s3.get_object(Bucket=bucket, Key=f"{folder}/locations/locations.json")
+        locations = _json.loads(loc_obj["Body"].read())
+    except Exception:
+        pass
+
+    report_submitted = locations.get("report_submitted", {})
+    submitted_date, submitted_time = _parse_timestamp(
+        report_submitted.get("captured_at") or metadata.get("report-timestamp")
+    )
+    report_location = report_submitted.get("location_label") or metadata.get("report-location", "")
+    gps_matched = bool(report_submitted.get("gps_lat") or metadata.get("report-gps-lat"))
+
+    entry: Dict[str, Any] = {
+        "nic": nic,
+        "customer": customer,
+        "folder": folder,
+        "policyId": metadata.get("policy-number") or "AL-VIP-00001",
+        "vehicleModel": metadata.get("vehicle-model") or "Toyota Raize",
+        "submittedDate": submitted_date,
+        "submittedTime": submitted_time,
+        "location": report_location,
+        "gpsMatched": gps_matched,
+        "timestampSigned": bool(submitted_date),
+        "userVerificationAvailable": bool(uv.get("Contents")),
+        "thirdPartyApplicable": bool(tp.get("Contents")),
+        # Photos are fetched lazily via GET /claims/{folder}/photos
+        "accidentImages": [],
+        "userVerificationPhotos": [],
+        "thirdPartyPhotos": [],
+        "locations": locations,
+    }
+    if metadata.get("vehicle-reg-no"):
+        entry["vehicleRegNo"] = metadata["vehicle-reg-no"]
+    return entry
+
+
 @router.get("")
 async def list_claims(_: dict = Depends(get_current_user)) -> List[Dict[str, Any]]:
     s = settings
-    s3 = _s3_client(s)
+    if not all([s.r2_endpoint_url, s.r2_access_key_id, s.r2_secret_access_key, s.r2_bucket_name]):
+        raise HTTPException(status_code=503, detail="R2 is not configured.")
+
+    kwargs = _s3_kwargs(s)
+    s3 = boto3.client("s3", **kwargs)
     bucket = s.r2_bucket_name
 
-    # Top-level folders — each is one accident claim
     resp = s3.list_objects_v2(Bucket=bucket, Delimiter="/")
     prefixes = [p["Prefix"] for p in resp.get("CommonPrefixes", [])]
 
-    claims: List[Dict[str, Any]] = []
-    for prefix in prefixes:
-        folder = prefix.rstrip("/")
+    if not prefixes:
+        return []
 
-        # Only process claim folders in "Name - NIC" format; skip internal folders like captures/
-        if " - " not in folder:
-            continue
+    # Process all claim folders in parallel — eliminates the sequential bottleneck
+    loop = asyncio.get_event_loop()
+    max_workers = min(len(prefixes), 20)
+    with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as pool:
+        tasks = [
+            loop.run_in_executor(pool, _process_folder, kwargs, bucket, prefix)
+            for prefix in prefixes
+        ]
+        results = await asyncio.gather(*tasks)
 
-        # Parse "Name - NIC" or "Name - NIC - timestamp" from folder name. Newer
-        # folders carry a per-capture timestamp so repeat claims from the same NIC
-        # get distinct folders instead of merging; maxsplit=2 keeps the NIC segment
-        # in the same place either way.
-        parts = folder.split(" - ", 2)
-        customer = parts[0].strip()
-        nic = parts[1].strip()
+    claims = [r for r in results if r is not None]
 
-        # Read metadata from the first photo in step-1
-        metadata: Dict[str, str] = {}
-        step1 = s3.list_objects_v2(
-            Bucket=bucket,
-            Prefix=f"{folder}/step-1-photos-uploaded/",
-            MaxKeys=1,
-        )
-        if step1.get("Contents"):
-            head = s3.head_object(Bucket=bucket, Key=step1["Contents"][0]["Key"])
-            metadata = head.get("Metadata", {})
-
-        # Collect step-1 walkaround photos with per-photo metadata
-        all_step1 = s3.list_objects_v2(Bucket=bucket, Prefix=f"{folder}/step-1-photos-uploaded/")
-        accident_images = []
-        for obj in all_step1.get("Contents", []):
-            if obj["Key"].endswith("/"):
-                continue
-            url = _presign(s3, bucket, obj["Key"])
-            try:
-                ph = s3.head_object(Bucket=bucket, Key=obj["Key"])
-                pmeta = ph.get("Metadata", {})
-            except Exception:
-                pmeta = {}
-            accident_images.append({
-                "url": url,
-                "gps_lat": float(pmeta["photo-gps-lat"]) if pmeta.get("photo-gps-lat") else None,
-                "gps_lng": float(pmeta["photo-gps-lng"]) if pmeta.get("photo-gps-lng") else None,
-                "captured_at": pmeta.get("photo-captured-at") or None,
-            })
-
-        # User-verification subfolder: driving licence + drunk test
-        uv = s3.list_objects_v2(Bucket=bucket, Prefix=f"{folder}/step-2-fraud-validation/user-verification/")
-        user_verification_photos = []
-        for obj in uv.get("Contents", []):
-            if obj["Key"].endswith("/"):
-                continue
-            url = _presign(s3, bucket, obj["Key"])
-            try:
-                ph = s3.head_object(Bucket=bucket, Key=obj["Key"])
-                pmeta = ph.get("Metadata", {})
-            except Exception:
-                pmeta = {}
-            user_verification_photos.append({
-                "url": url,
-                "gps_lat": float(pmeta["photo-gps-lat"]) if pmeta.get("photo-gps-lat") else None,
-                "gps_lng": float(pmeta["photo-gps-lng"]) if pmeta.get("photo-gps-lng") else None,
-                "captured_at": pmeta.get("photo-captured-at") or None,
-            })
-
-        # Third-party subfolder
-        tp = s3.list_objects_v2(Bucket=bucket, Prefix=f"{folder}/step-2-fraud-validation/third-party/")
-        third_party_photos = []
-        for obj in tp.get("Contents", []):
-            if obj["Key"].endswith("/"):
-                continue
-            url = _presign(s3, bucket, obj["Key"])
-            try:
-                ph = s3.head_object(Bucket=bucket, Key=obj["Key"])
-                pmeta = ph.get("Metadata", {})
-            except Exception:
-                pmeta = {}
-            third_party_photos.append({
-                "url": url,
-                "gps_lat": float(pmeta["photo-gps-lat"]) if pmeta.get("photo-gps-lat") else None,
-                "gps_lng": float(pmeta["photo-gps-lng"]) if pmeta.get("photo-gps-lng") else None,
-                "captured_at": pmeta.get("photo-captured-at") or None,
-            })
-
-        # Read locations.json written by POST /complete
-        locations: Dict[str, Any] = {}
-        try:
-            import json as _json
-            loc_obj = s3.get_object(Bucket=bucket, Key=f"{folder}/locations/locations.json")
-            locations = _json.loads(loc_obj["Body"].read())
-        except Exception:
-            pass
-
-        # Report-level data: prefer locations.json (written at submit time), fall back to old R2 metadata
-        report_submitted = locations.get("report_submitted", {})
-        submitted_date, submitted_time = _parse_timestamp(
-            report_submitted.get("captured_at") or metadata.get("report-timestamp")
-        )
-        report_location = report_submitted.get("location_label") or metadata.get("report-location", "")
-        gps_matched = bool(report_submitted.get("gps_lat") or metadata.get("report-gps-lat"))
-
-        entry: Dict[str, Any] = {
-            "nic": nic,
-            "customer": customer,
-            "folder": folder,
-            "policyId": metadata.get("policy-number") or "AL-VIP-00001",
-            "vehicleModel": metadata.get("vehicle-model") or "Toyota Raize",
-            "submittedDate": submitted_date,
-            "submittedTime": submitted_time,
-            "location": report_location,
-            "gpsMatched": gps_matched,
-            "timestampSigned": bool(submitted_date),
-            "userVerificationAvailable": len(user_verification_photos) > 0,
-            "thirdPartyApplicable": len(third_party_photos) > 0,
-            "accidentImages": accident_images,
-            "userVerificationPhotos": user_verification_photos,
-            "thirdPartyPhotos": third_party_photos,
-            "locations": locations,
-        }
-        if metadata.get("vehicle-reg-no"):
-            entry["vehicleRegNo"] = metadata["vehicle-reg-no"]
-        claims.append(entry)
-
+    # Sort newest first: folders with a timestamp suffix sort naturally;
+    # fall back to submittedDate desc
+    claims.sort(key=lambda c: (c.get("submittedDate") or ""), reverse=True)
     return claims
 
 
@@ -193,8 +177,6 @@ class ApproveClaimRequest(BaseModel):
 
 @router.post("/approve")
 async def approve_claim(body: ApproveClaimRequest, _: dict = Depends(get_current_user)) -> Dict[str, bool]:
-    """Writes captures.status -> 'approved' via Supabase REST — same resolution
-    mechanism as the pipeline-completion write, see claims_privacy_status.py."""
     ok = await mark_capture_approved(nic=body.nic, customer_name=body.customer_name, folder=body.folder)
     if not ok:
         raise HTTPException(status_code=404, detail="Could not find a matching claim to approve.")
@@ -203,7 +185,6 @@ async def approve_claim(body: ApproveClaimRequest, _: dict = Depends(get_current
 
 @router.get("/{nic}/enhanced-jobs")
 def list_enhanced_jobs_for_claim(nic: str) -> List[Dict[str, Any]]:
-    """Return all low-light enhanced photo jobs for a given NIC, newest first."""
     from app.services.r2 import R2Service
     r2 = R2Service()
     if not r2.is_configured:
@@ -216,7 +197,6 @@ def list_enhanced_jobs_for_claim(nic: str) -> List[Dict[str, Any]]:
 
 @router.get("/{nic}/models")
 def list_models_for_claim(nic: str) -> List[Dict[str, Any]]:
-    """Return all completed 3D models for a given NIC, newest first."""
     from app.services.r2 import R2Service
     r2 = R2Service()
     if not r2.is_configured:
@@ -228,20 +208,35 @@ def list_models_for_claim(nic: str) -> List[Dict[str, Any]]:
 
 
 @router.get("/{folder_name}/photos")
-def get_claim_photos(folder_name: str) -> Dict[str, List[str]]:
+def get_claim_photos(folder_name: str) -> Dict[str, List[Any]]:
+    """Fetch photo URLs + per-photo metadata for one claim folder.
+    Called lazily when the user opens an image panel — never on initial load."""
     s = settings
     s3 = _s3_client(s)
     bucket = s.r2_bucket_name
 
-    def list_signed(prefix: str) -> List[str]:
+    def list_with_meta(prefix: str) -> List[Dict[str, Any]]:
         resp = s3.list_objects_v2(Bucket=bucket, Prefix=prefix)
-        return [
-            _presign(s3, bucket, obj["Key"])
-            for obj in resp.get("Contents", [])
-            if not obj["Key"].endswith("/")
-        ]
+        result = []
+        for obj in resp.get("Contents", []):
+            if obj["Key"].endswith("/"):
+                continue
+            url = _presign(s3, bucket, obj["Key"])
+            try:
+                ph = s3.head_object(Bucket=bucket, Key=obj["Key"])
+                pmeta = ph.get("Metadata", {})
+            except Exception:
+                pmeta = {}
+            result.append({
+                "url": url,
+                "gps_lat": float(pmeta["photo-gps-lat"]) if pmeta.get("photo-gps-lat") else None,
+                "gps_lng": float(pmeta["photo-gps-lng"]) if pmeta.get("photo-gps-lng") else None,
+                "captured_at": pmeta.get("photo-captured-at") or None,
+            })
+        return result
 
     return {
-        "walkaround": list_signed(f"{folder_name}/step-1-photos-uploaded/"),
-        "fraud": list_signed(f"{folder_name}/step-2-fraud-validation/"),
+        "walkaround": list_with_meta(f"{folder_name}/step-1-photos-uploaded/"),
+        "user_verification": list_with_meta(f"{folder_name}/step-2-fraud-validation/user-verification/"),
+        "third_party": list_with_meta(f"{folder_name}/step-2-fraud-validation/third-party/"),
     }

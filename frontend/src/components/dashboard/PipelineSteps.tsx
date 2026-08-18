@@ -13,6 +13,8 @@ type Step = {
 type PipelineStepsProps = {
   steps: Step[];
   modelState: "idle" | "generating" | "ready" | "error" | "low_light";
+  claimLabel?: string;
+  onDismiss?: () => void;
 };
 
 function formatDuration(seconds: number): string {
@@ -46,11 +48,10 @@ function StepTimer({ step, now }: { step: Step; now: number }) {
   return null;
 }
 
-export function PipelineSteps({ steps, modelState }: PipelineStepsProps) {
+export function PipelineSteps({ steps, modelState, claimLabel, onDismiss }: PipelineStepsProps) {
   const [minimized, setMinimized] = useState(false);
   const [now, setNow] = useState(Date.now());
 
-  // Tick every second to update elapsed time for running steps
   useEffect(() => {
     const hasRunning = steps.some((s) => s.status === "running");
     if (!hasRunning) return;
@@ -85,18 +86,37 @@ export function PipelineSteps({ steps, modelState }: PipelineStepsProps) {
         <button type="button" className="ps-float__toggle" aria-label={minimized ? "Expand" : "Minimise"}>
           {minimized ? "▲" : "▼"}
         </button>
+        {onDismiss && (
+          <button
+            type="button"
+            className="ps-float__dismiss"
+            aria-label="Dismiss"
+            onClick={(e) => { e.stopPropagation(); onDismiss(); }}
+          >
+            ×
+          </button>
+        )}
       </div>
 
-      {!minimized && steps.length > 0 && (
-        <div className="ps-float__body">
-          {steps.map((step) => (
-            <div key={step.key} className={`ps-step ps-step--${step.status}`}>
-              <StepIcon status={step.status} />
-              <span className="ps-step__label">{step.label}</span>
-              <StepTimer step={step} now={now} />
+      {!minimized && (
+        <>
+          {claimLabel && (
+            <div className="ps-float__claim">
+              Generating for <strong>{claimLabel}</strong>
             </div>
-          ))}
-        </div>
+          )}
+          {steps.length > 0 && (
+            <div className="ps-float__body">
+              {steps.map((step) => (
+                <div key={step.key} className={`ps-step ps-step--${step.status}`}>
+                  <StepIcon status={step.status} />
+                  <span className="ps-step__label">{step.label}</span>
+                  <StepTimer step={step} now={now} />
+                </div>
+              ))}
+            </div>
+          )}
+        </>
       )}
     </div>
   );
