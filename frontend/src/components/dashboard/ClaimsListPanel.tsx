@@ -7,6 +7,7 @@ type ClaimsListPanelProps = {
   search: string;
   onSearchChange: (value: string) => void;
   onSelect: (folder: string) => void;
+  expanded?: boolean;
 };
 
 export function ClaimsListPanel({
@@ -15,6 +16,7 @@ export function ClaimsListPanel({
   search,
   onSearchChange,
   onSelect,
+  expanded,
 }: ClaimsListPanelProps) {
   const [sortAsc, setSortAsc] = useState(false);
 
@@ -32,38 +34,41 @@ export function ClaimsListPanel({
     });
 
   return (
-    <section className="claims-panel">
-      <div className="claims-panel__toolbar">
-        <h2>Claims awaiting review</h2>
-        <div className="claims-panel__search">
-          <input
-            type="search"
-            placeholder="Search by Name"
-            value={search}
-            onChange={(e) => onSearchChange(e.target.value)}
-            aria-label="Search claims"
-          />
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden>
-            <circle cx="11" cy="11" r="7" stroke="#9ca3af" strokeWidth="2" />
-            <path d="M20 20l-3-3" stroke="#9ca3af" strokeWidth="2" strokeLinecap="round" />
-          </svg>
+    <section className={`claims-panel${expanded ? " claims-panel--slim" : ""}`}>
+      {!expanded && (
+        <div className="claims-panel__toolbar">
+          <h2>Claims awaiting review</h2>
+          <div className="claims-panel__search">
+            <input
+              type="search"
+              placeholder="Search by Name"
+              value={search}
+              onChange={(e) => onSearchChange(e.target.value)}
+              aria-label="Search claims"
+            />
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden>
+              <circle cx="11" cy="11" r="7" stroke="#9ca3af" strokeWidth="2" />
+              <path d="M20 20l-3-3" stroke="#9ca3af" strokeWidth="2" strokeLinecap="round" />
+            </svg>
+          </div>
         </div>
-      </div>
+      )}
       <button
         type="button"
         className="claims-panel__sort"
         onClick={() => setSortAsc((v) => !v)}
       >
-        Sorted by Date {sortAsc ? "↑" : "↓"}
+        {expanded ? (sortAsc ? "↑" : "↓") : `Sorted by Date ${sortAsc ? "↑" : "↓"}`}
       </button>
       <div className="claims-panel__table-wrap">
         <table className="claims-table">
           <thead>
             <tr>
-              <th>NIC</th>
+              {/* Full columns — hidden in slim mode */}
+              {!expanded && <th>NIC</th>}
               <th>Customer</th>
-              <th>Policy ID</th>
-              <th>Vehicle Model</th>
+              {/* <th>Policy ID</th> */}
+              {!expanded && <th>Vehicle Model</th>}
               <th>Submitted</th>
             </tr>
           </thead>
@@ -74,10 +79,10 @@ export function ClaimsListPanel({
                 className={claim.folder === selectedFolder ? "claims-table__row--selected" : ""}
                 onClick={() => onSelect(claim.folder)}
               >
-                <td>{claim.nic}</td>
+                {!expanded && <td>{claim.nic}</td>}
                 <td>{claim.customer}</td>
-                <td>{claim.policyId}</td>
-                <td>{claim.vehicleModel}</td>
+                {/* <td>{claim.policyId}</td> */}
+                {!expanded && <td>{claim.vehicleModel}</td>}
                 <td>{claim.submittedDate || "—"}</td>
               </tr>
             ))}
