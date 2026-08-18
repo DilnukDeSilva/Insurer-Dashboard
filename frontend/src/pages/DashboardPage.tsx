@@ -2,11 +2,26 @@ import { useEffect, useMemo, useState } from "react";
 import { ClaimDetailPanel } from "../components/dashboard/ClaimDetailPanel";
 import { ClaimsListPanel } from "../components/dashboard/ClaimsListPanel";
 import { DashboardHeader } from "../components/dashboard/DashboardHeader";
+import { PipelineSteps } from "../components/dashboard/PipelineSteps";
+import { PipelineJobProvider, usePipelineJob } from "../context/PipelineJobContext";
 import { useAuth } from "../context/AuthContext";
 import { fetchClaims } from "../data/claims";
 import type { Claim } from "../types/claim";
 
-export function DashboardPage({ onAdminClick }: { onAdminClick?: () => void }) {
+function GlobalPipelineWidget() {
+  const { activeJob, clearJob } = usePipelineJob();
+  if (!activeJob) return null;
+  return (
+    <PipelineSteps
+      steps={activeJob.steps}
+      modelState={activeJob.state}
+      claimLabel={activeJob.label}
+      onDismiss={activeJob.state !== "generating" ? clearJob : undefined}
+    />
+  );
+}
+
+function DashboardInner({ onAdminClick }: { onAdminClick?: () => void }) {
   const { user } = useAuth();
   const [claims, setClaims] = useState<Claim[]>([]);
   const [selectedFolder, setSelectedFolder] = useState<string>("");
@@ -51,6 +66,16 @@ export function DashboardPage({ onAdminClick }: { onAdminClick?: () => void }) {
           )}
         </div>
       )}
+
+      <GlobalPipelineWidget />
     </div>
+  );
+}
+
+export function DashboardPage({ onAdminClick }: { onAdminClick?: () => void }) {
+  return (
+    <PipelineJobProvider>
+      <DashboardInner onAdminClick={onAdminClick} />
+    </PipelineJobProvider>
   );
 }

@@ -20,9 +20,9 @@ from app.services.r2 import R2Service
 STEPS = [
     ("download", "Downloading images"),
     ("enhance",  "Enhancing image brightness"),
-    ("colmap",   "Structure from Motion (COLMAP)"),
-    ("train",    "Training Gaussian Splat"),
-    ("export",   "Exporting splat model"),
+    ("colmap",   "Mapping camera positions"),
+    ("train",    "Reconstructing 3D model"),
+    ("export",   "Exporting 3D model"),
 ]
 
 # In-memory stores (reset on restart)

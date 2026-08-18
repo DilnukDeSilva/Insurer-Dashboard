@@ -490,6 +490,19 @@
   text-align: center;
 }
 
+.btn-spinner {
+  display: inline-block;
+  width: 11px;
+  height: 11px;
+  border: 2px solid rgba(255, 255, 255, 0.35);
+  border-top-color: #fff;
+  border-radius: 50%;
+  animation: spin 0.6s linear infinite;
+  vertical-align: middle;
+  margin-right: 0.4rem;
+  flex-shrink: 0;
+}
+
 /* ── Enhanced photos overlay ─────────────────────────── */
 .enhanced-badge {
   font-size: 0.7rem;
@@ -900,6 +913,32 @@
   cursor: pointer;
   padding: 0;
   flex-shrink: 0;
+}
+
+.ps-float__dismiss {
+  background: none;
+  border: none;
+  color: #94a3b8;
+  font-size: 1rem;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0 0 0 0.15rem;
+  flex-shrink: 0;
+}
+
+.ps-float__dismiss:hover {
+  color: #e2e8f0;
+}
+
+.ps-float__claim {
+  padding: 0.2rem 0.75rem 0.4rem;
+  font-size: 0.72rem;
+  color: #94a3b8;
+  border-top: 1px solid rgba(255,255,255,0.08);
+}
+
+.ps-float__claim strong {
+  color: #cbd5e1;
 }
 
 .ps-float__body {
