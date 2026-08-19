@@ -281,6 +281,23 @@
   font-weight: 500;
 }
 
+.claims-table__name {
+  display: block;
+}
+
+.claims-table__sub {
+  display: block;
+  font-size: 0.72rem;
+  color: var(--color-text-muted);
+  margin-top: 0.1rem;
+  font-weight: 400;
+}
+
+.claims-table__row--selected .claims-table__sub {
+  color: var(--color-brand);
+  opacity: 0.75;
+}
+
 /* ─── Claim detail (right panel) ─────────────────────────── */
 
 .claim-detail {

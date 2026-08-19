@@ -25,7 +25,8 @@ export function ClaimsListPanel({
       (c) =>
         c.customer.toLowerCase().includes(search.toLowerCase()) ||
         c.nic.toLowerCase().includes(search.toLowerCase()) ||
-        c.vehicleModel.toLowerCase().includes(search.toLowerCase()),
+        c.vehicleModel.toLowerCase().includes(search.toLowerCase()) ||
+        (c.vehicleRegNo ?? "").toLowerCase().includes(search.toLowerCase()),
     )
     .sort((a, b) => {
       const da = a.submittedDate ? new Date(a.submittedDate).getTime() : 0;
@@ -67,8 +68,8 @@ export function ClaimsListPanel({
               {/* Full columns — hidden in slim mode */}
               {!expanded && <th>NIC</th>}
               <th>Customer</th>
-              {/* <th>Policy ID</th> */}
               {!expanded && <th>Vehicle Model</th>}
+              {!expanded && <th>Reg No.</th>}
               <th>Submitted</th>
             </tr>
           </thead>
@@ -80,9 +81,20 @@ export function ClaimsListPanel({
                 onClick={() => onSelect(claim.folder)}
               >
                 {!expanded && <td>{claim.nic}</td>}
-                <td>{claim.customer}</td>
-                {/* <td>{claim.policyId}</td> */}
+                <td>
+                  {expanded ? (
+                    <>
+                      <span className="claims-table__name">{claim.nic}</span>
+                      {claim.vehicleRegNo && (
+                        <span className="claims-table__sub">{claim.vehicleRegNo}</span>
+                      )}
+                    </>
+                  ) : (
+                    <span className="claims-table__name">{claim.customer}</span>
+                  )}
+                </td>
                 {!expanded && <td>{claim.vehicleModel}</td>}
+                {!expanded && <td>{claim.vehicleRegNo || "—"}</td>}
                 <td>{claim.submittedDate || "—"}</td>
               </tr>
             ))}
