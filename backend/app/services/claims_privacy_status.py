@@ -19,36 +19,13 @@ the one capture id to update.
 
 from __future__ import annotations
 
-import re
-from datetime import datetime
-from typing import Any, Optional
+from typing import Optional
 
+from app.services.captures_lookup import build_parent_folder_name
 from app.services.supabase_service import sb_get, sb_patch
 
 PENDING_REVIEW_STATUS = "pending_review"
 APPROVED_STATUS = "approved"
-
-
-def _build_parent_folder_name(name: Optional[str], nic: Optional[str], created_at: Any) -> str:
-    """Direct port of claims-privacy's r2_metadata.build_parent_folder_name() — the two
-    repos share no code, so this must be kept in sync with that function by hand."""
-    resolved_name = (name or "UNKNOWN").strip() or "UNKNOWN"
-    resolved_nic = (nic or "000000000000").strip() or "000000000000"
-    safe_name = re.sub(r"[/\\]", "-", resolved_name)
-    safe_nic = re.sub(r"[/\\]", "-", resolved_nic)
-    folder = f"{safe_name} - {safe_nic}"
-
-    dt: Optional[datetime] = None
-    if isinstance(created_at, datetime):
-        dt = created_at
-    elif isinstance(created_at, str) and created_at:
-        try:
-            dt = datetime.fromisoformat(created_at.replace("Z", "+00:00"))
-        except ValueError:
-            dt = None
-    if dt is not None:
-        folder += f" - {dt.strftime('%Y-%m-%dT%H-%M-%SZ')}"
-    return folder
 
 
 async def _resolve_capture_id(nic: str, folder: str) -> Optional[str]:
@@ -60,7 +37,7 @@ async def _resolve_capture_id(nic: str, folder: str) -> Optional[str]:
         (
             r
             for r in rows
-            if _build_parent_folder_name(r.get("claimant_name"), r.get("claimant_nic"), r.get("created_at")) == folder
+            if build_parent_folder_name(r.get("claimant_name"), r.get("claimant_nic"), r.get("created_at")) == folder
         ),
         None,
     )

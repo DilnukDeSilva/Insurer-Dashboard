@@ -29,6 +29,8 @@ export type Claim = {
   policyId: string;
   vehicleModel: string;
   vehicleRegNo?: string;
+  // "YY/MM", e.g. "26/09".
+  insuranceExpireMonth?: string;
   submittedDate: string;
   submittedTime: string;
   location: string;
