@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import concurrent.futures
 import json as _json
+import re
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
@@ -13,6 +14,7 @@ from pydantic import BaseModel
 from app.core.dependencies import get_current_user
 
 from app.config import Settings, settings
+from app.services.captures_lookup import get_insurance_expire_month
 from app.services.claims_privacy_status import mark_capture_approved
 
 router = APIRouter(prefix="/claims", tags=["claims"])
@@ -47,7 +49,17 @@ def _parse_timestamp(ts_iso: Optional[str]) -> tuple:
     if not ts_iso:
         return ("", "")
     try:
-        dt = datetime.fromisoformat(ts_iso.replace("Z", "+00:00")).astimezone(timezone.utc)
+        normalized = ts_iso.replace("Z", "+00:00")
+        # datetime.fromisoformat() only accepts exactly 3 or 6 fractional-second
+        # digits — pad/truncate any other precision (e.g. ".54") to 6 so a
+        # otherwise-valid timestamp doesn't fall through to the raw-string
+        # fallback below and show up unformatted in the dashboard.
+        normalized = re.sub(
+            r"\.(\d+)",
+            lambda m: "." + (m.group(1) + "000000")[:6],
+            normalized,
+        )
+        dt = datetime.fromisoformat(normalized).astimezone(timezone.utc)
         return (dt.strftime("%Y-%m-%d"), dt.strftime("%H:%M"))
     except Exception:
         return (ts_iso, "")
@@ -132,6 +144,12 @@ def _process_folder(kwargs: dict, bucket: str, prefix: str) -> Optional[Dict[str
     }
     if metadata.get("vehicle-reg-no"):
         entry["vehicleRegNo"] = metadata["vehicle-reg-no"]
+    # Read directly from captures (via Supabase), not R2 object metadata like the fields
+    # above — unlike those, this doesn't need the sign-photo-upload Edge Function to be
+    # redeployed for changes to take effect, and it isn't frozen at upload time.
+    expire_month = get_insurance_expire_month(nic, folder)
+    if expire_month:
+        entry["insuranceExpireMonth"] = expire_month
     return entry
 
 

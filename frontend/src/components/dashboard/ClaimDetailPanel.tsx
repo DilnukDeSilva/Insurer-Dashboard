@@ -248,6 +248,7 @@ export function ClaimDetailPanel({
             <InfoRow label="NIC" value={claim.nic} passed={true} />
             <InfoRow label="Customer" value={claim.customer} passed={true} />
             <InfoRow label="Policy ID" value={claim.policyId} passed={true} />
+            <InfoRow label="Insurance Expiry" value={claim.insuranceExpireMonth ?? "—"} passed={true} />
             <InfoRow label="Vehicle Model" value={claim.vehicleModel} passed={true} />
             <InfoRow label="Vehicle Reg No" value={claim.vehicleRegNo ?? "CBQ - 6899"} passed={true} />
           </div>
