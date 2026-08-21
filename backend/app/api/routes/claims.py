@@ -40,7 +40,12 @@ def _s3_kwargs(s: Settings) -> dict:
         endpoint_url=s.r2_endpoint_url,
         aws_access_key_id=s.r2_access_key_id,
         aws_secret_access_key=s.r2_secret_access_key,
-        config=Config(signature_version="s3v4"),
+        config=Config(
+            signature_version="s3v4",
+            connect_timeout=5,
+            read_timeout=10,
+            retries={"max_attempts": 1},
+        ),
         region_name="auto",
     )
 
@@ -85,30 +90,15 @@ def _process_folder(kwargs: dict, bucket: str, prefix: str) -> Optional[Dict[str
 
     s3 = boto3.client("s3", **kwargs)
 
-    # Metadata from the first step-1 photo only (one head_object, not one per photo)
     metadata: Dict[str, str] = {}
-    step1_first = s3.list_objects_v2(
-        Bucket=bucket,
-        Prefix=f"{folder}/step-1-photos-uploaded/",
-        MaxKeys=1,
-    )
+    step1_first = s3.list_objects_v2(Bucket=bucket, Prefix=f"{folder}/step-1-photos-uploaded/", MaxKeys=1)
     if step1_first.get("Contents"):
         head = s3.head_object(Bucket=bucket, Key=step1_first["Contents"][0]["Key"])
         metadata = head.get("Metadata", {})
 
-    # Existence checks only — no listing all objects, no head_object per photo
-    uv = s3.list_objects_v2(
-        Bucket=bucket,
-        Prefix=f"{folder}/step-2-fraud-validation/user-verification/",
-        MaxKeys=1,
-    )
-    tp = s3.list_objects_v2(
-        Bucket=bucket,
-        Prefix=f"{folder}/step-2-fraud-validation/third-party/",
-        MaxKeys=1,
-    )
+    uv = s3.list_objects_v2(Bucket=bucket, Prefix=f"{folder}/step-2-fraud-validation/user-verification/", MaxKeys=1)
+    tp = s3.list_objects_v2(Bucket=bucket, Prefix=f"{folder}/step-2-fraud-validation/third-party/", MaxKeys=1)
 
-    # locations.json
     locations: Dict[str, Any] = {}
     try:
         loc_obj = s3.get_object(Bucket=bucket, Key=f"{folder}/locations/locations.json")
@@ -144,12 +134,6 @@ def _process_folder(kwargs: dict, bucket: str, prefix: str) -> Optional[Dict[str
     }
     if metadata.get("vehicle-reg-no"):
         entry["vehicleRegNo"] = metadata["vehicle-reg-no"]
-    # Read directly from captures (via Supabase), not R2 object metadata like the fields
-    # above — unlike those, this doesn't need the sign-photo-upload Edge Function to be
-    # redeployed for changes to take effect, and it isn't frozen at upload time.
-    expire_month = get_insurance_expire_month(nic, folder)
-    if expire_month:
-        entry["insuranceExpireMonth"] = expire_month
     return entry
 
 
@@ -169,7 +153,6 @@ async def list_claims(_: dict = Depends(get_current_user)) -> List[Dict[str, Any
     if not prefixes:
         return []
 
-    # Process all claim folders in parallel — eliminates the sequential bottleneck
     loop = asyncio.get_event_loop()
     max_workers = min(len(prefixes), 20)
     with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as pool:
@@ -180,9 +163,6 @@ async def list_claims(_: dict = Depends(get_current_user)) -> List[Dict[str, Any
         results = await asyncio.gather(*tasks)
 
     claims = [r for r in results if r is not None]
-
-    # Sort newest first: folders with a timestamp suffix sort naturally;
-    # fall back to submittedDate desc
     claims.sort(key=lambda c: (c.get("submittedDate") or ""), reverse=True)
     return claims
 
@@ -228,36 +208,56 @@ def list_models_for_claim(folder_name: str) -> List[Dict[str, Any]]:
         return []
 
 
+@router.get("/{folder_name}/expiry")
+def get_claim_expiry(folder_name: str) -> Dict[str, Any]:
+    parts = folder_name.split(" - ", 2)
+    nic = parts[1].strip() if len(parts) > 1 else folder_name
+    expire = get_insurance_expire_month(nic, folder_name)
+    return {"insuranceExpireMonth": expire}
+
+
 @router.get("/{folder_name}/photos")
 def get_claim_photos(folder_name: str) -> Dict[str, List[Any]]:
     """Fetch photo URLs + per-photo metadata for one claim folder.
     Called lazily when the user opens an image panel — never on initial load."""
+    from concurrent.futures import ThreadPoolExecutor, as_completed as _as_completed
     s = settings
     s3 = _s3_client(s)
     bucket = s.r2_bucket_name
 
+    def _fetch_one(key: str) -> Dict[str, Any]:
+        url = _presign(s3, bucket, key)
+        try:
+            pmeta = s3.head_object(Bucket=bucket, Key=key).get("Metadata", {})
+        except Exception:
+            pmeta = {}
+        return {
+            "url": url,
+            "gps_lat": float(pmeta["photo-gps-lat"]) if pmeta.get("photo-gps-lat") else None,
+            "gps_lng": float(pmeta["photo-gps-lng"]) if pmeta.get("photo-gps-lng") else None,
+            "captured_at": pmeta.get("photo-captured-at") or None,
+        }
+
     def list_with_meta(prefix: str) -> List[Dict[str, Any]]:
-        resp = s3.list_objects_v2(Bucket=bucket, Prefix=prefix)
-        result = []
-        for obj in resp.get("Contents", []):
-            if obj["Key"].endswith("/"):
-                continue
-            url = _presign(s3, bucket, obj["Key"])
-            try:
-                ph = s3.head_object(Bucket=bucket, Key=obj["Key"])
-                pmeta = ph.get("Metadata", {})
-            except Exception:
-                pmeta = {}
-            result.append({
-                "url": url,
-                "gps_lat": float(pmeta["photo-gps-lat"]) if pmeta.get("photo-gps-lat") else None,
-                "gps_lng": float(pmeta["photo-gps-lng"]) if pmeta.get("photo-gps-lng") else None,
-                "captured_at": pmeta.get("photo-captured-at") or None,
-            })
-        return result
+        keys = [
+            obj["Key"] for obj in
+            s3.list_objects_v2(Bucket=bucket, Prefix=prefix).get("Contents", [])
+            if not obj["Key"].endswith("/")
+        ]
+        if not keys:
+            return []
+        with ThreadPoolExecutor(max_workers=min(len(keys), 20)) as pool:
+            futures = {pool.submit(_fetch_one, k): k for k in keys}
+            return [f.result() for f in _as_completed(futures) if f.result()]
+
+    # All three categories fetched in parallel
+    with ThreadPoolExecutor(max_workers=3) as pool:
+        f_walk = pool.submit(list_with_meta, f"{folder_name}/step-1-photos-uploaded/")
+        f_uv   = pool.submit(list_with_meta, f"{folder_name}/step-2-fraud-validation/user-verification/")
+        f_tp   = pool.submit(list_with_meta, f"{folder_name}/step-2-fraud-validation/third-party/")
 
     return {
-        "walkaround": list_with_meta(f"{folder_name}/step-1-photos-uploaded/"),
-        "user_verification": list_with_meta(f"{folder_name}/step-2-fraud-validation/user-verification/"),
-        "third_party": list_with_meta(f"{folder_name}/step-2-fraud-validation/third-party/"),
+        "walkaround":        f_walk.result(),
+        "user_verification": f_uv.result(),
+        "third_party":       f_tp.result(),
     }

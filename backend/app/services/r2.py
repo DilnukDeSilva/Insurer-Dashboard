@@ -16,7 +16,13 @@ class R2Service:
             endpoint_url=settings.r2_endpoint_url,
             aws_access_key_id=settings.r2_access_key_id,
             aws_secret_access_key=settings.r2_secret_access_key,
-            config=Config(signature_version="s3v4"),
+            config=Config(
+                signature_version="s3v4",
+                max_pool_connections=50,
+                connect_timeout=5,
+                read_timeout=10,
+                retries={"max_attempts": 1},
+            ),
         )
         self.bucket = settings.r2_bucket_name
 
@@ -96,42 +102,36 @@ class R2Service:
     def list_enhanced_jobs_for_nic(self, nic: str) -> list[dict]:
         """Return all jobs that have enhanced photos for a given NIC, newest first."""
         import json as _json
+        from concurrent.futures import ThreadPoolExecutor, as_completed
 
         resp = self.client.list_objects_v2(
-            Bucket=self.bucket,
-            Prefix="jobs/",
-            Delimiter="/",
+            Bucket=self.bucket, Prefix="jobs/", Delimiter="/"
         )
+        job_ids = [p["Prefix"].rstrip("/").split("/")[-1] for p in resp.get("CommonPrefixes", [])]
 
-        results = []
-        for prefix_obj in resp.get("CommonPrefixes", []):
-            job_id = prefix_obj["Prefix"].rstrip("/").split("/")[-1]
-
+        def _check(job_id: str):
             try:
-                meta_resp = self.client.get_object(
+                meta = _json.loads(self.client.get_object(
                     Bucket=self.bucket, Key=f"jobs/{job_id}/meta.json"
-                )
-                meta = _json.loads(meta_resp["Body"].read())
+                )["Body"].read())
             except Exception:
-                continue
-
+                return None
             if meta.get("nic") != nic:
-                continue
-
-            # Only include jobs that actually have enhanced photos
+                return None
             check = self.client.list_objects_v2(
-                Bucket=self.bucket,
-                Prefix=f"jobs/{job_id}/enhanced/",
-                MaxKeys=1,
+                Bucket=self.bucket, Prefix=f"jobs/{job_id}/enhanced/", MaxKeys=1
             )
             if not check.get("Contents"):
-                continue
+                return None
+            return {"job_id": job_id, "created_at": meta.get("created_at", "")}
 
-            results.append({
-                "job_id": job_id,
-                "created_at": meta.get("created_at", ""),
-            })
-
+        results = []
+        if job_ids:
+            with ThreadPoolExecutor(max_workers=min(len(job_ids), 20)) as pool:
+                for future in as_completed({pool.submit(_check, jid): jid for jid in job_ids}):
+                    entry = future.result()
+                    if entry:
+                        results.append(entry)
         results.sort(key=lambda x: x["created_at"], reverse=True)
         return results
 
@@ -195,43 +195,42 @@ class R2Service:
         Matches on meta['folder'] when available (new jobs); falls back to
         meta['nic'] for older jobs that were created before folder was stored."""
         import json as _json
+        from concurrent.futures import ThreadPoolExecutor, as_completed
 
         resp = self.client.list_objects_v2(
-            Bucket=self.bucket,
-            Prefix="jobs/",
-            Delimiter="/",
+            Bucket=self.bucket, Prefix="jobs/", Delimiter="/"
         )
+        job_ids = [p["Prefix"].rstrip("/").split("/")[-1] for p in resp.get("CommonPrefixes", [])]
 
-        results = []
-        for prefix_obj in resp.get("CommonPrefixes", []):
-            job_id = prefix_obj["Prefix"].rstrip("/").split("/")[-1]
-
+        def _check(job_id: str):
             try:
-                meta_resp = self.client.get_object(
+                meta = _json.loads(self.client.get_object(
                     Bucket=self.bucket, Key=f"jobs/{job_id}/meta.json"
-                )
-                meta = _json.loads(meta_resp["Body"].read())
+                )["Body"].read())
             except Exception:
-                continue
-
-            # Prefer exact folder match; fall back to nic for pre-folder jobs
+                return None
             if meta.get("folder") is not None:
                 if meta["folder"] != folder:
-                    continue
+                    return None
             elif meta.get("nic") != nic:
-                continue
-
+                return None
             try:
                 self.client.head_object(Bucket=self.bucket, Key=f"jobs/{job_id}/splat.ply")
             except Exception:
-                continue
-
-            results.append({
+                return None
+            return {
                 "job_id": job_id,
                 "created_at": meta.get("created_at", ""),
                 "customer": meta.get("customer", ""),
                 "folder": meta.get("folder"),
-            })
+            }
 
+        results = []
+        if job_ids:
+            with ThreadPoolExecutor(max_workers=min(len(job_ids), 20)) as pool:
+                for future in as_completed({pool.submit(_check, jid): jid for jid in job_ids}):
+                    entry = future.result()
+                    if entry:
+                        results.append(entry)
         results.sort(key=lambda x: x["created_at"], reverse=True)
         return results
