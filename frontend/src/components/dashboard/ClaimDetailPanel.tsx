@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import type { AccidentImage, Claim, ClaimLocationEntry } from "../../types/claim";
 import { useAuth } from "../../context/AuthContext";
 import { authHeaders } from "../../data/claims";
@@ -90,6 +90,7 @@ export function ClaimDetailPanel({
   const { activeJob, startPolling } = usePipelineJob();
   const isStaff = user?.role === "staff";
   const canApprove = user?.role === "admin" || user?.role === "agent";
+  const anyJobGenerating = activeJob?.state === "generating";
 
   const [showImages, setShowImages] = useState(false);
   const [showUserVerification, setShowUserVerification] = useState(false);
@@ -103,6 +104,8 @@ export function ClaimDetailPanel({
   const [existingModels, setExistingModels] = useState<SavedModel[]>([]);
   const [showModelPicker, setShowModelPicker] = useState(false);
   const [modelsLoading, setModelsLoading] = useState(true);
+
+  const [insuranceExpiry, setInsuranceExpiry] = useState<string | null>(null);
 
   // Local error flag for when the job fails to start (before polling begins)
   const [startError, setStartError] = useState(false);
@@ -160,24 +163,29 @@ export function ClaimDetailPanel({
     }
   }
 
-  const fetchModels = (nic: string) => {
+  // Tracks the folder that is currently selected so stale fetch results can be ignored.
+  const activeFolderRef = useRef(claim.folder);
+
+  const fetchModels = (folder: string) => {
     setModelsLoading(true);
-    return fetch(`${API}/claims/${encodeURIComponent(nic)}/models`)
+    return fetch(`${API}/claims/${encodeURIComponent(folder)}/models`)
       .then((r) => (r.ok ? r.json() : []))
       .then((models: SavedModel[]) => {
+        if (activeFolderRef.current !== folder) return;
         setExistingModels(models);
         if (models.length > 0) {
           setLocalSplatUrl(`${API}/pipeline/jobs/${models[0].job_id}/splat`);
         }
       })
       .catch(() => {})
-      .finally(() => setModelsLoading(false));
+      .finally(() => { if (activeFolderRef.current === folder) setModelsLoading(false); });
   };
 
-  const fetchEnhancedJobs = (nic: string) =>
+  const fetchEnhancedJobs = (nic: string, folder: string) =>
     fetch(`${API}/claims/${encodeURIComponent(nic)}/enhanced-jobs`)
       .then((r) => (r.ok ? r.json() : []))
       .then((jobs: SavedModel[]) => {
+        if (activeFolderRef.current !== folder) return;
         if (jobs.length > 0) setLocalEnhancedJobId(jobs[0].job_id);
       })
       .catch(() => {});
@@ -196,6 +204,9 @@ export function ClaimDetailPanel({
   }
 
   useEffect(() => {
+    const folder = claim.folder;
+    activeFolderRef.current = folder;
+
     setLocalSplatUrl(undefined);
     setLocalEnhancedJobId(null);
     setExistingModels([]);
@@ -205,9 +216,19 @@ export function ClaimDetailPanel({
     setStartError(false);
     setPhotoData(null);
     setPhotosLoading(false);
-    fetchModels(claim.nic);
-    fetchEnhancedJobs(claim.nic);
-  }, [claim.nic]);
+    setInsuranceExpiry(null);
+
+    fetchModels(folder);
+    fetchEnhancedJobs(claim.nic, folder);
+
+    fetch(`${API}/claims/${encodeURIComponent(folder)}/expiry`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => {
+        if (activeFolderRef.current !== folder) return;
+        if (data) setInsuranceExpiry(data.insuranceExpireMonth ?? null);
+      })
+      .catch(() => {});
+  }, [claim.folder]);
 
   async function handleGenerateModel() {
     setStartError(false);
@@ -248,7 +269,9 @@ export function ClaimDetailPanel({
             <InfoRow label="NIC" value={claim.nic} passed={true} />
             <InfoRow label="Customer" value={claim.customer} passed={true} />
             <InfoRow label="Policy ID" value={claim.policyId} passed={true} />
-            <InfoRow label="Insurance Expiry" value={claim.insuranceExpireMonth ?? "—"} passed={true} />
+            {(insuranceExpiry ?? claim.insuranceExpireMonth) && (
+              <InfoRow label="Insurance Expiry" value={insuranceExpiry ?? claim.insuranceExpireMonth!} passed={true} />
+            )}
             <InfoRow label="Vehicle Model" value={claim.vehicleModel} passed={true} />
             <InfoRow label="Vehicle Reg No" value={claim.vehicleRegNo ?? "CBQ - 6899"} passed={true} />
           </div>
@@ -333,21 +356,20 @@ export function ClaimDetailPanel({
                 </button>
               ) : null
             )}
-            {!isStaff && (modelState === "idle" || modelState === "ready") && (
+            {!isStaff && (
               <button
                 type="button"
                 className="btn-inspect"
                 onClick={handleGenerateModel}
-                disabled={starting}
+                disabled={starting || anyJobGenerating}
               >
-                {starting
-                  ? <><span className="btn-spinner" />Starting…</>
-                  : existingModels.length > 0 ? "Generate New Model" : "Generate 3D Model"
+                {modelState === "generating"
+                  ? <><span className="btn-spinner" />Generating…</>
+                  : starting
+                    ? <><span className="btn-spinner" />Starting…</>
+                    : existingModels.length > 0 ? "Generate New Model" : "Generate 3D Model"
                 }
               </button>
-            )}
-            {!isStaff && modelState === "generating" && (
-              <span className="model-generating">Generating…</span>
             )}
             {enhancedJobId && modelState !== "generating" && (
               <button

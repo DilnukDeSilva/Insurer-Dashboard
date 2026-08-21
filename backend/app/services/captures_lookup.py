@@ -82,3 +82,5 @@ def get_insurance_expire_month(nic: str, folder: str) -> Optional[str]:
         return match.get("insurance_expire_month") if match else None
     except Exception:
         return None
+
+
