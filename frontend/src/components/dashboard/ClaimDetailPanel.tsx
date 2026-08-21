@@ -90,6 +90,7 @@ export function ClaimDetailPanel({
   const { activeJob, startPolling } = usePipelineJob();
   const isStaff = user?.role === "staff";
   const canApprove = user?.role === "admin" || user?.role === "agent";
+  const anyJobGenerating = activeJob?.state === "generating";
 
   const [showImages, setShowImages] = useState(false);
   const [showUserVerification, setShowUserVerification] = useState(false);
@@ -160,9 +161,9 @@ export function ClaimDetailPanel({
     }
   }
 
-  const fetchModels = (nic: string) => {
+  const fetchModels = (folder: string) => {
     setModelsLoading(true);
-    return fetch(`${API}/claims/${encodeURIComponent(nic)}/models`)
+    return fetch(`${API}/claims/${encodeURIComponent(folder)}/models`)
       .then((r) => (r.ok ? r.json() : []))
       .then((models: SavedModel[]) => {
         setExistingModels(models);
@@ -205,9 +206,9 @@ export function ClaimDetailPanel({
     setStartError(false);
     setPhotoData(null);
     setPhotosLoading(false);
-    fetchModels(claim.nic);
+    fetchModels(claim.folder);
     fetchEnhancedJobs(claim.nic);
-  }, [claim.nic]);
+  }, [claim.folder]);
 
   async function handleGenerateModel() {
     setStartError(false);
@@ -333,21 +334,20 @@ export function ClaimDetailPanel({
                 </button>
               ) : null
             )}
-            {!isStaff && (modelState === "idle" || modelState === "ready") && (
+            {!isStaff && (
               <button
                 type="button"
                 className="btn-inspect"
                 onClick={handleGenerateModel}
-                disabled={starting}
+                disabled={starting || anyJobGenerating}
               >
-                {starting
-                  ? <><span className="btn-spinner" />Starting…</>
-                  : existingModels.length > 0 ? "Generate New Model" : "Generate 3D Model"
+                {modelState === "generating"
+                  ? <><span className="btn-spinner" />Generating…</>
+                  : starting
+                    ? <><span className="btn-spinner" />Starting…</>
+                    : existingModels.length > 0 ? "Generate New Model" : "Generate 3D Model"
                 }
               </button>
-            )}
-            {!isStaff && modelState === "generating" && (
-              <span className="model-generating">Generating…</span>
             )}
             {enhancedJobId && modelState !== "generating" && (
               <button

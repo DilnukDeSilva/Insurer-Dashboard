@@ -1,6 +1,7 @@
 """Cloudflare R2 download service for accident images."""
 
 from pathlib import Path
+from typing import Optional
 
 import boto3
 from botocore.config import Config
@@ -81,10 +82,10 @@ class R2Service:
         )
         return __import__("json").loads(response["Body"].read())
 
-    def write_job_meta(self, job_id: str, nic: str, customer: str, created_at: str) -> None:
-        """Write meta.json so this job can later be looked up by NIC."""
+    def write_job_meta(self, job_id: str, nic: str, customer: str, created_at: str, folder: Optional[str] = None) -> None:
+        """Write meta.json so this job can later be looked up by folder or NIC."""
         import json as _json
-        body = _json.dumps({"nic": nic, "customer": customer, "created_at": created_at})
+        body = _json.dumps({"nic": nic, "customer": customer, "created_at": created_at, "folder": folder})
         self.client.put_object(
             Bucket=self.bucket,
             Key=f"jobs/{job_id}/meta.json",
@@ -184,6 +185,52 @@ class R2Service:
                 "job_id": job_id,
                 "created_at": meta.get("created_at", ""),
                 "customer": meta.get("customer", ""),
+            })
+
+        results.sort(key=lambda x: x["created_at"], reverse=True)
+        return results
+
+    def list_models_for_folder(self, folder: str, nic: str) -> list[dict]:
+        """Return completed jobs for a specific claim folder.
+        Matches on meta['folder'] when available (new jobs); falls back to
+        meta['nic'] for older jobs that were created before folder was stored."""
+        import json as _json
+
+        resp = self.client.list_objects_v2(
+            Bucket=self.bucket,
+            Prefix="jobs/",
+            Delimiter="/",
+        )
+
+        results = []
+        for prefix_obj in resp.get("CommonPrefixes", []):
+            job_id = prefix_obj["Prefix"].rstrip("/").split("/")[-1]
+
+            try:
+                meta_resp = self.client.get_object(
+                    Bucket=self.bucket, Key=f"jobs/{job_id}/meta.json"
+                )
+                meta = _json.loads(meta_resp["Body"].read())
+            except Exception:
+                continue
+
+            # Prefer exact folder match; fall back to nic for pre-folder jobs
+            if meta.get("folder") is not None:
+                if meta["folder"] != folder:
+                    continue
+            elif meta.get("nic") != nic:
+                continue
+
+            try:
+                self.client.head_object(Bucket=self.bucket, Key=f"jobs/{job_id}/splat.ply")
+            except Exception:
+                continue
+
+            results.append({
+                "job_id": job_id,
+                "created_at": meta.get("created_at", ""),
+                "customer": meta.get("customer", ""),
+                "folder": meta.get("folder"),
             })
 
         results.sort(key=lambda x: x["created_at"], reverse=True)

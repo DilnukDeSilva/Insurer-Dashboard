@@ -84,6 +84,7 @@ class PipelineService:
                 nic=nic,
                 customer=customer_name,
                 created_at=datetime.now(_tz.utc).isoformat(),
+                folder=folder,
             )
         except Exception:
             pass  # non-fatal — pipeline still runs

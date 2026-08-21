@@ -213,14 +213,17 @@ def list_enhanced_jobs_for_claim(nic: str) -> List[Dict[str, Any]]:
         return []
 
 
-@router.get("/{nic}/models")
-def list_models_for_claim(nic: str) -> List[Dict[str, Any]]:
+@router.get("/{folder_name}/models")
+def list_models_for_claim(folder_name: str) -> List[Dict[str, Any]]:
     from app.services.r2 import R2Service
     r2 = R2Service()
     if not r2.is_configured:
         return []
+    # Extract NIC from folder for backward-compat fallback (folder = "Name - NIC" or "Name - NIC - ts")
+    parts = folder_name.split(" - ", 2)
+    nic = parts[1].strip() if len(parts) > 1 else folder_name
     try:
-        return r2.list_models_for_nic(nic)
+        return r2.list_models_for_folder(folder=folder_name, nic=nic)
     except Exception:
         return []
 
