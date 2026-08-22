@@ -124,8 +124,8 @@ export function ClaimDetailPanel({
   const [approved, setApproved] = useState(false);
   const [showApproveConfirm, setShowApproveConfirm] = useState(false);
 
-  // Whether the background context job belongs to this claim
-  const isActiveJobHere = activeJob?.nic === claim.nic;
+  // Whether the background context job belongs to this specific claim folder
+  const isActiveJobHere = activeJob?.folder === claim.folder;
 
   // Derived values — context wins when there's an active job for this claim
   const modelState: ModelState = startError
@@ -181,8 +181,8 @@ export function ClaimDetailPanel({
       .finally(() => { if (activeFolderRef.current === folder) setModelsLoading(false); });
   };
 
-  const fetchEnhancedJobs = (nic: string, folder: string) =>
-    fetch(`${API}/claims/${encodeURIComponent(nic)}/enhanced-jobs`)
+  const fetchEnhancedJobs = (folder: string) =>
+    fetch(`${API}/claims/${encodeURIComponent(folder)}/enhanced-jobs`)
       .then((r) => (r.ok ? r.json() : []))
       .then((jobs: SavedModel[]) => {
         if (activeFolderRef.current !== folder) return;
@@ -217,9 +217,13 @@ export function ClaimDetailPanel({
     setPhotoData(null);
     setPhotosLoading(false);
     setInsuranceExpiry(null);
+    setShowImages(false);
+    setShowUserVerification(false);
+    setShowThirdParty(false);
+    setShowLocation(false);
 
     fetchModels(folder);
-    fetchEnhancedJobs(claim.nic, folder);
+    fetchEnhancedJobs(folder);
 
     fetch(`${API}/claims/${encodeURIComponent(folder)}/expiry`)
       .then((r) => (r.ok ? r.json() : null))
@@ -251,7 +255,7 @@ export function ClaimDetailPanel({
       });
 
       // Hand off to the context — polling survives claim switches from here
-      startPolling(claim.nic, claim.vehicleRegNo ?? claim.nic, job_id);
+      startPolling(claim.nic, claim.folder, claim.vehicleRegNo ?? claim.nic, job_id);
     } catch {
       setStartError(true);
     } finally {

@@ -21,14 +21,14 @@ def _base() -> str:
 
 
 async def sb_get(table: str, params: Optional[Dict[str, str]] = None) -> List[Dict[str, Any]]:
-    async with httpx.AsyncClient() as client:
+    async with httpx.AsyncClient(timeout=10.0) as client:
         r = await client.get(f"{_base()}/{table}", headers=_headers(), params=params or {})
         r.raise_for_status()
         return r.json()
 
 
 async def sb_post(table: str, data: Dict[str, Any]) -> Dict[str, Any]:
-    async with httpx.AsyncClient() as client:
+    async with httpx.AsyncClient(timeout=10.0) as client:
         r = await client.post(f"{_base()}/{table}", headers=_headers(), json=data)
         r.raise_for_status()
         result = r.json()
@@ -36,7 +36,7 @@ async def sb_post(table: str, data: Dict[str, Any]) -> Dict[str, Any]:
 
 
 async def sb_patch(table: str, match_col: str, match_val: str, data: Dict[str, Any]) -> None:
-    async with httpx.AsyncClient() as client:
+    async with httpx.AsyncClient(timeout=10.0) as client:
         r = await client.patch(
             f"{_base()}/{table}",
             headers=_headers(),

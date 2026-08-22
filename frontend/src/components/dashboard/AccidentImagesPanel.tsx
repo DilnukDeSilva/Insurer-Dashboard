@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { AccidentImage } from "../../types/claim";
 
 type AccidentImagesPanelProps = {
@@ -35,6 +35,8 @@ function formatCoords(img: AccidentImage): string {
 
 export function AccidentImagesPanel({ nic, images, loading, visible, onClose }: AccidentImagesPanelProps) {
   const [activeIndex, setActiveIndex] = useState(0);
+
+  useEffect(() => { setActiveIndex(0); }, [images]);
 
   if (!visible) return null;
 

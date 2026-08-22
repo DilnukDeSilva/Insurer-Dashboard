@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { AccidentImage, Claim } from "../../types/claim";
 
 type MediaViewerPanelProps = {
@@ -41,6 +41,8 @@ function formatCoords(img: AccidentImage): string {
 
 export function MediaViewerPanel({ title, urls, loading, visible, onClose }: MediaViewerPanelProps) {
   const [activeIndex, setActiveIndex] = useState(0);
+
+  useEffect(() => { setActiveIndex(0); }, [urls]);
 
   if (!visible) return null;
 
