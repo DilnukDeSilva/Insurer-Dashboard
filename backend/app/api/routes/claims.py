@@ -25,14 +25,7 @@ PRESIGN_EXPIRES = 3600  # 1 hour
 def _s3_client(s: Settings):
     if not all([s.r2_endpoint_url, s.r2_access_key_id, s.r2_secret_access_key, s.r2_bucket_name]):
         raise HTTPException(status_code=503, detail="R2 is not configured.")
-    return boto3.client(
-        "s3",
-        endpoint_url=s.r2_endpoint_url,
-        aws_access_key_id=s.r2_access_key_id,
-        aws_secret_access_key=s.r2_secret_access_key,
-        config=Config(signature_version="s3v4"),
-        region_name="auto",
-    )
+    return boto3.client("s3", **_s3_kwargs(s))
 
 
 def _s3_kwargs(s: Settings) -> dict:
@@ -83,7 +76,13 @@ def _process_folder(kwargs: dict, bucket: str, prefix: str) -> Optional[Dict[str
     folder = prefix.rstrip("/")
     if " - " not in folder:
         return None
+    try:
+        return _process_folder_inner(kwargs, bucket, folder)
+    except Exception:
+        return None
 
+
+def _process_folder_inner(kwargs: dict, bucket: str, folder: str) -> Optional[Dict[str, Any]]:
     parts = folder.split(" - ", 2)
     customer = parts[0].strip()
     nic = parts[1].strip()
@@ -93,8 +92,11 @@ def _process_folder(kwargs: dict, bucket: str, prefix: str) -> Optional[Dict[str
     metadata: Dict[str, str] = {}
     step1_first = s3.list_objects_v2(Bucket=bucket, Prefix=f"{folder}/step-1-photos-uploaded/", MaxKeys=1)
     if step1_first.get("Contents"):
-        head = s3.head_object(Bucket=bucket, Key=step1_first["Contents"][0]["Key"])
-        metadata = head.get("Metadata", {})
+        try:
+            head = s3.head_object(Bucket=bucket, Key=step1_first["Contents"][0]["Key"])
+            metadata = head.get("Metadata", {})
+        except Exception:
+            metadata = {}
 
     uv = s3.list_objects_v2(Bucket=bucket, Prefix=f"{folder}/step-2-fraud-validation/user-verification/", MaxKeys=1)
     tp = s3.list_objects_v2(Bucket=bucket, Prefix=f"{folder}/step-2-fraud-validation/third-party/", MaxKeys=1)
@@ -181,14 +183,16 @@ async def approve_claim(body: ApproveClaimRequest, _: dict = Depends(get_current
     return {"approved": True}
 
 
-@router.get("/{nic}/enhanced-jobs")
-def list_enhanced_jobs_for_claim(nic: str) -> List[Dict[str, Any]]:
+@router.get("/{folder_name}/enhanced-jobs")
+def list_enhanced_jobs_for_claim(folder_name: str) -> List[Dict[str, Any]]:
     from app.services.r2 import R2Service
     r2 = R2Service()
     if not r2.is_configured:
         return []
+    parts = folder_name.split(" - ", 2)
+    nic = parts[1].strip() if len(parts) > 1 else folder_name
     try:
-        return r2.list_enhanced_jobs_for_nic(nic)
+        return r2.list_enhanced_jobs_for_folder(folder=folder_name, nic=nic)
     except Exception:
         return []
 

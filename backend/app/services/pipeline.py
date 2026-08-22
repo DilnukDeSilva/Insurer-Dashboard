@@ -171,9 +171,6 @@ class PipelineService:
                     message="Photos too dark for 3D — enhanced images available.",
                 )
 
-            splat_local = settings.jobs_dir / job_id / "gs" / "splat" / "splat.ply"
-            self.r2.download_file(f"jobs/{job_id}/splat.ply", splat_local)
-
             status.overall = PipelineJobStatus.COMPLETED
             status.model_url = f"/api/pipeline/jobs/{job_id}/splat"
 

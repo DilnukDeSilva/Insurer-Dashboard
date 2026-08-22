@@ -99,8 +99,10 @@ class R2Service:
             ContentType="application/json",
         )
 
-    def list_enhanced_jobs_for_nic(self, nic: str) -> list[dict]:
-        """Return all jobs that have enhanced photos for a given NIC, newest first."""
+    def list_enhanced_jobs_for_folder(self, folder: str, nic: str) -> list[dict]:
+        """Return jobs that have enhanced photos for a specific claim folder, newest first.
+        Matches on meta['folder'] when available; falls back to NIC only for claims that
+        have no timestamp suffix (NIC uniquely identifies that claim)."""
         import json as _json
         from concurrent.futures import ThreadPoolExecutor, as_completed
 
@@ -108,6 +110,8 @@ class R2Service:
             Bucket=self.bucket, Prefix="jobs/", Delimiter="/"
         )
         job_ids = [p["Prefix"].rstrip("/").split("/")[-1] for p in resp.get("CommonPrefixes", [])]
+        folder_has_timestamp = len(folder.split(" - ", 2)) >= 3
+        base_folder = " - ".join(folder.split(" - ", 2)[:2]) if folder_has_timestamp else folder
 
         def _check(job_id: str):
             try:
@@ -116,8 +120,15 @@ class R2Service:
                 )["Body"].read())
             except Exception:
                 return None
-            if meta.get("nic") != nic:
-                return None
+            meta_folder = meta.get("folder")
+            if meta_folder is not None:
+                if meta_folder != folder and meta_folder != base_folder:
+                    return None
+            else:
+                if folder_has_timestamp:
+                    return None
+                if meta.get("nic") != nic:
+                    return None
             check = self.client.list_objects_v2(
                 Bucket=self.bucket, Prefix=f"jobs/{job_id}/enhanced/", MaxKeys=1
             )
@@ -193,7 +204,7 @@ class R2Service:
     def list_models_for_folder(self, folder: str, nic: str) -> list[dict]:
         """Return completed jobs for a specific claim folder.
         Matches on meta['folder'] when available (new jobs); falls back to
-        meta['nic'] for older jobs that were created before folder was stored."""
+        meta['nic'] only for claims without a timestamp suffix (NIC alone identifies them)."""
         import json as _json
         from concurrent.futures import ThreadPoolExecutor, as_completed
 
@@ -201,6 +212,10 @@ class R2Service:
             Bucket=self.bucket, Prefix="jobs/", Delimiter="/"
         )
         job_ids = [p["Prefix"].rstrip("/").split("/")[-1] for p in resp.get("CommonPrefixes", [])]
+        folder_has_timestamp = len(folder.split(" - ", 2)) >= 3
+
+        # Base folder = "Name - NIC" without the timestamp suffix
+        base_folder = " - ".join(folder.split(" - ", 2)[:2]) if folder_has_timestamp else folder
 
         def _check(job_id: str):
             try:
@@ -209,11 +224,18 @@ class R2Service:
                 )["Body"].read())
             except Exception:
                 return None
-            if meta.get("folder") is not None:
-                if meta["folder"] != folder:
+            meta_folder = meta.get("folder")
+            if meta_folder is not None:
+                # Exact match, OR job was stored with the base folder (no timestamp)
+                # and this claim is one of that person's timestamped submissions.
+                if meta_folder != folder and meta_folder != base_folder:
                     return None
-            elif meta.get("nic") != nic:
-                return None
+            else:
+                # No folder in meta at all: match by NIC only for non-timestamped claims.
+                if folder_has_timestamp:
+                    return None
+                if meta.get("nic") != nic:
+                    return None
             try:
                 self.client.head_object(Bucket=self.bucket, Key=f"jobs/{job_id}/splat.ply")
             except Exception:

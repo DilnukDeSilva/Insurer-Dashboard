@@ -19,6 +19,7 @@ export type JobState = "generating" | "ready" | "error" | "low_light";
 export type ActiveJob = {
   job_id: string;
   nic: string;
+  folder: string;
   label: string;
   steps: PipelineStep[];
   state: JobState;
@@ -28,7 +29,7 @@ export type ActiveJob = {
 
 type PipelineJobContextValue = {
   activeJob: ActiveJob | null;
-  startPolling: (nic: string, label: string, job_id: string) => void;
+  startPolling: (nic: string, folder: string, label: string, job_id: string) => void;
   clearJob: () => void;
 };
 
@@ -107,7 +108,7 @@ export function PipelineJobProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     const stored = sessionStorage.getItem(SESSION_KEY);
     if (!stored) return;
-    let parsed: { job_id: string; nic: string; label: string } | null = null;
+    let parsed: { job_id: string; nic: string; folder: string; label: string } | null = null;
     try {
       parsed = JSON.parse(stored);
     } catch {
@@ -115,7 +116,7 @@ export function PipelineJobProvider({ children }: { children: ReactNode }) {
       return;
     }
     if (!parsed) return;
-    const { job_id, nic, label } = parsed;
+    const { job_id, nic, folder, label } = parsed;
 
     fetch(`${API}/pipeline/jobs/${job_id}/status`)
       .then((r) => {
@@ -128,7 +129,7 @@ export function PipelineJobProvider({ children }: { children: ReactNode }) {
         if (overall === "running" || overall === "pending") {
           // Job still in progress — restore the popup with live steps
           setActiveJob({
-            job_id, nic, label, state: "generating",
+            job_id, nic, folder, label, state: "generating",
             steps: (data.steps ?? INITIAL_STEPS) as PipelineStep[],
           });
           _beginInterval(job_id);
@@ -147,10 +148,10 @@ export function PipelineJobProvider({ children }: { children: ReactNode }) {
     setActiveJob(null);
   }
 
-  function startPolling(nic: string, label: string, job_id: string) {
+  function startPolling(nic: string, folder: string, label: string, job_id: string) {
     _stopPolling();
-    sessionStorage.setItem(SESSION_KEY, JSON.stringify({ job_id, nic, label }));
-    setActiveJob({ job_id, nic, label, state: "generating", steps: INITIAL_STEPS });
+    sessionStorage.setItem(SESSION_KEY, JSON.stringify({ job_id, nic, folder, label }));
+    setActiveJob({ job_id, nic, folder, label, state: "generating", steps: INITIAL_STEPS });
     _beginInterval(job_id);
   }
 

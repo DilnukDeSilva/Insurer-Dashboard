@@ -123,13 +123,14 @@ async def list_users(_: dict = Depends(admin_only)) -> List[UserOut]:
     db = get_db()
     users = await db["users"].find().to_list(length=500)
 
-    company_ids = [u["company_id"] for u in users if u.get("company_id")]
+    # Company names come from Supabase (where insurance_companies is managed),
+    # not from MongoDB — fetch all at once and index by id.
     companies: Dict[str, str] = {}
-    if company_ids:
-        docs = await db["companies"].find(
-            {"_id": {"$in": [ObjectId(c) for c in company_ids]}}
-        ).to_list(length=200)
-        companies = {str(d["_id"]): d["name"] for d in docs}
+    try:
+        rows = await sb_get("insurance_companies", {"select": "id,company_name"})
+        companies = {r["id"]: r["company_name"] for r in rows}
+    except Exception:
+        pass
 
     return [
         UserOut(
@@ -151,13 +152,12 @@ async def create_user(body: UserCreate, _: dict = Depends(admin_only)) -> UserOu
     if await db["users"].find_one({"email": body.email}):
         raise HTTPException(status_code=409, detail="Email already registered")
 
-    company_oid = ObjectId(body.company_id) if body.company_id else None
     doc: Dict[str, Any] = {
         "email": body.email,
         "password_hash": hash_password(body.password),
         "name": body.name,
         "role": body.role,
-        "company_id": company_oid,
+        "company_id": body.company_id or None,
         "is_active": True,
         "created_at": datetime.now(timezone.utc),
     }
@@ -199,7 +199,7 @@ async def agent_create_staff(
     if await db["users"].find_one({"email": body.email}):
         raise HTTPException(status_code=409, detail="Email already registered")
 
-    company_id = body.company_id or current_user.get("company_id")
+    company_id = body.company_id or current_user.get("company_id") or None
     doc: Dict[str, Any] = {
         "email": body.email,
         "password_hash": hash_password(body.password),

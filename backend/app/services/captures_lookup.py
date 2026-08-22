@@ -18,6 +18,7 @@ asyncio event loop — see list_claims().
 
 from __future__ import annotations
 
+import logging
 import re
 from datetime import datetime
 from typing import Any, Dict, List, Optional
@@ -25,6 +26,8 @@ from typing import Any, Dict, List, Optional
 import httpx
 
 from app.config import settings
+
+_log = logging.getLogger(__name__)
 
 
 def _headers() -> Dict[str, str]:
@@ -56,8 +59,12 @@ def build_parent_folder_name(name: Optional[str], nic: Optional[str], created_at
 
 
 def get_insurance_expire_month(nic: str, folder: str) -> Optional[str]:
-    """Best-effort: returns the matching capture's insurance_expire_month, or None on
-    no match / any failure — a lookup failure here must not break the claims list."""
+    """Best-effort: returns the insurance_expire_month for this NIC, or None on
+    no match / any failure — a lookup failure here must not break the claims list.
+
+    insurance_expire_month is a per-person policy field, not per-claim, so we
+    return it from any capture row for this NIC that has it set. We try an exact
+    folder match first (most precise), then fall back to any row with a value."""
     try:
         with httpx.Client(timeout=5.0) as client:
             r = client.get(
@@ -70,17 +77,35 @@ def get_insurance_expire_month(nic: str, folder: str) -> Optional[str]:
             )
             r.raise_for_status()
             rows: List[Dict[str, Any]] = r.json()
-        match = next(
+
+        # Prefer the row whose reconstructed folder exactly matches this claim.
+        exact = next(
             (
-                row
-                for row in rows
-                if build_parent_folder_name(row.get("claimant_name"), row.get("claimant_nic"), row.get("created_at"))
-                == folder
+                row for row in rows
+                if build_parent_folder_name(
+                    row.get("claimant_name"), row.get("claimant_nic"), row.get("created_at")
+                ) == folder
             ),
             None,
         )
-        return match.get("insurance_expire_month") if match else None
-    except Exception:
+        if exact:
+            return exact.get("insurance_expire_month") or None
+
+        # No exact match (e.g. claim created today before Supabase row exists).
+        # Fall back: return the expiry from any row for this NIC that has one.
+        for row in rows:
+            value = row.get("insurance_expire_month")
+            if value:
+                _log.debug(
+                    "expiry: no exact folder match for nic=%s folder=%r; using fallback value=%r",
+                    nic, folder, value,
+                )
+                return value
+
+        _log.debug("expiry: no value found for nic=%s (rows=%d)", nic, len(rows))
+        return None
+    except Exception as exc:
+        _log.warning("expiry lookup failed for nic=%s folder=%r: %s", nic, folder, exc)
         return None
 
 
