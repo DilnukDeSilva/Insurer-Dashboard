@@ -52,6 +52,11 @@ nerfstudio_image = (
         # nerfstudio compiles gsplat CUDA kernels at install time (nvcc from base image)
         "CUDA_HOME=/usr/local/cuda PATH=/usr/local/cuda/bin:$PATH pip install nerfstudio",
         "pip install boto3",
+        # piq: PyTorch image quality metrics (BRISQUE, PSNR, SSIM)
+        "pip install piq",
+        # plyfile: read/write Gaussian Splat PLY files for post-processing
+        "pip install plyfile",
+        "pip install tensorboard",
     )
 )
 
@@ -105,16 +110,118 @@ def run_pipeline(
     _os.environ["QT_QPA_PLATFORM"] = "offscreen"
     _os.environ.pop("DISPLAY", None)
 
-    def run(cmd: list, label: str = "") -> None:
-        # No explicit env= so all children inherit our modified os.environ
+    def run(cmd: list, label: str = "", log_output: bool = False) -> str:
+        """Run a subprocess. Returns stdout. Logs last 80 lines if log_output=True."""
+        t0 = time.time()
         result = subprocess.run(cmd, capture_output=True, text=True)
+        elapsed = time.time() - t0
+        name = label or cmd[0]
         if result.returncode != 0:
-            name = label or cmd[0]
             raise RuntimeError(
-                f"{name} failed (exit {result.returncode}):\n"
+                f"{name} failed (exit {result.returncode}) after {elapsed:.1f}s:\n"
                 f"STDOUT: {result.stdout[-3000:]}\n"
                 f"STDERR: {result.stderr[-3000:]}"
             )
+        print(f"[pipeline] ✓ {name} — {elapsed:.1f}s")
+        combined = result.stdout + "\n" + result.stderr
+        if log_output and combined.strip():
+            lines = combined.strip().splitlines()
+            # Print last 80 lines so Modal logs stay readable
+            for line in lines[-80:]:
+                print(f"  {line}")
+        return result.stdout + "\n" + result.stderr
+
+    def _brisque(path) -> float | None:
+        """Return BRISQUE score for an image (lower = better quality, 0–100)."""
+        try:
+            import torch, piq
+            from PIL import Image as _PILImage
+            import numpy as _np2
+            img = _PILImage.open(path).convert("RGB")
+            arr = _np2.array(img, dtype=_np2.float32) / 255.0
+            t = torch.from_numpy(arr).permute(2, 0, 1).unsqueeze(0)
+            return float(piq.brisque(t, data_range=1.0).item())
+        except Exception as _e:
+            print(f"[pipeline] BRISQUE failed for {path}: {_e}")
+            return None
+
+    def _log_brisque(files, label: str) -> dict[str, float]:
+        """Measure BRISQUE on up to 5 sample images and log results."""
+        sample = files[:: max(1, len(files) // 5)][:5]
+        scores = {}
+        for p in sample:
+            s = _brisque(p)
+            if s is not None:
+                scores[p.name] = round(s, 2)
+        if scores:
+            avg = round(sum(scores.values()) / len(scores), 2)
+            print(f"[pipeline] BRISQUE {label}: avg={avg}  per-file={scores}")
+        return scores
+
+    def _parse_colmap_matches(stdout: str) -> None:
+        """Extract and log feature match statistics from exhaustive_matcher output."""
+        import re
+        total_matches = 0
+        pair_count = 0
+        for line in stdout.splitlines():
+            m = re.search(r"(\d+)\s+matches", line, re.IGNORECASE)
+            if m:
+                total_matches += int(m.group(1))
+                pair_count += 1
+        if pair_count:
+            print(f"[pipeline] COLMAP matches: {total_matches} total across {pair_count} image pairs "
+                  f"(avg {total_matches // pair_count}/pair)")
+        else:
+            print(f"[pipeline] COLMAP matches: could not parse match counts from output")
+
+    def _parse_nerfstudio_metrics(stdout: str) -> dict:
+        """Extract PSNR, SSIM, Gaussian count from nerfstudio training output."""
+        import re
+
+        # Gaussian count
+        gaussians = None
+        for line in stdout.splitlines():
+            m = re.search(r"num_gauss[ians]*[:\s]+([0-9,]+)", line, re.IGNORECASE)
+            if m:
+                gaussians = m.group(1).replace(",", "")
+        if gaussians:
+            print(f"[pipeline] Number of Gaussians: {int(gaussians):,}")
+
+        psnr_vals, ssim_vals, lpips_vals = [], [], []
+        for line in stdout.splitlines():
+            p = re.search(r"(?:^|[\s,])psnr[:\s=]+([0-9]+\.?[0-9]*)", line, re.IGNORECASE)
+            if p:
+                val = float(p.group(1))
+                if 0 < val < 60:
+                    psnr_vals.append(val)
+            s = re.search(r"(?:^|[\s,])ssim[:\s=]+([0-9]+\.?[0-9]*)", line, re.IGNORECASE)
+            if s:
+                val = float(s.group(1))
+                if 0 < val <= 1:
+                    ssim_vals.append(val)
+            lp = re.search(r"(?:^|[\s,])lpips[:\s=]+([0-9]+\.?[0-9]*)", line, re.IGNORECASE)
+            if lp:
+                val = float(lp.group(1))
+                if 0 < val < 10:
+                    lpips_vals.append(val)
+
+        results = {}
+        if psnr_vals:
+            results["psnr"] = psnr_vals[-1]
+            print(f"[pipeline] nerfstudio PSNR — final: {psnr_vals[-1]:.2f} dB  "
+                  f"best: {max(psnr_vals):.2f} dB over {len(psnr_vals)} evals")
+        if ssim_vals:
+            results["ssim"] = ssim_vals[-1]
+            print(f"[pipeline] nerfstudio SSIM — final: {ssim_vals[-1]:.4f}  "
+                  f"best: {max(ssim_vals):.4f}")
+        if lpips_vals:
+            results["lpips"] = lpips_vals[-1]
+            print(f"[pipeline] nerfstudio LPIPS — final: {lpips_vals[-1]:.4f}")
+        if not psnr_vals and not ssim_vals:
+            print("[pipeline] nerfstudio: no PSNR/SSIM found in output")
+        return results
+
+    _pipeline_start = time.time()
 
     steps = [
         {"key": "download", "status": "running",  "started_at": now()},
@@ -181,7 +288,10 @@ def run_pipeline(
             sample = image_files[:: max(1, len(image_files) // 6)][:6]
             means = [ImageStat.Stat(Image.open(p).convert("L")).mean[0] for p in sample]
             overall_mean = sum(means) / len(means)
-            print(f"[pipeline] Mean image brightness: {overall_mean:.1f}/255")
+            print(f"[pipeline] Images: {len(image_files)} total")
+            print(f"[pipeline] Mean brightness (pre-enhancement): {overall_mean:.1f}/255  "
+                  f"({', '.join(f'{m:.1f}' for m in means)} — sampled {len(sample)} files)")
+            _log_brisque(image_files, "pre-enhancement")
 
             def _gamma_lut(mean: float, target: float) -> bytes:
                 g = _math.log(target / 255.0) / _math.log(max(mean, 1.0) / 255.0)
@@ -336,6 +446,13 @@ def run_pipeline(
 
                 print(f"[pipeline] Enhancement complete ({len(image_files)} images)")
 
+                # Measure post-enhancement brightness and BRISQUE
+                post_means = [ImageStat.Stat(Image.open(p).convert("L")).mean[0] for p in sample]
+                post_mean = sum(post_means) / len(post_means)
+                print(f"[pipeline] Mean brightness (post-enhancement): {post_mean:.1f}/255  "
+                      f"(was {overall_mean:.1f}, Δ={post_mean - overall_mean:+.1f})")
+                _log_brisque(image_files, "post-enhancement")
+
                 # Upload enhanced photos to R2 so frontend can display them
                 for p in image_files:
                     s3.upload_file(
@@ -355,6 +472,11 @@ def run_pipeline(
                 print("[pipeline] Very dark — running Zero-DCE then continuing to 3D")
                 if not _run_zero_dce(image_files):
                     _apply_gamma(image_files, _gamma_lut(overall_mean, TARGET))
+                post_means = [ImageStat.Stat(Image.open(p).convert("L")).mean[0] for p in sample]
+                post_mean = sum(post_means) / len(post_means)
+                print(f"[pipeline] Mean brightness (post-enhancement): {post_mean:.1f}/255  "
+                      f"(was {overall_mean:.1f}, Δ={post_mean - overall_mean:+.1f})")
+                _log_brisque(image_files, "post-Zero-DCE")
 
             elif overall_mean < DARK:
                 # ── PIL gamma correction for moderately dark images ─────────
@@ -363,7 +485,58 @@ def run_pipeline(
                 _apply_gamma(image_files, _gamma_lut(overall_mean, TARGET))
 
             else:
-                print("[pipeline] Images well-lit — skipping enhancement")
+                print("[pipeline] Images well-lit — skipping bulk enhancement")
+
+            # ── Per-image normalization (mixed-lighting fix) ───────────────
+            #
+            # Runs after bulk enhancement on every path that continues to 3D.
+            # A single claim submission can contain photos with very different
+            # lighting (e.g. one side of the car in shadow, other in sunlight).
+            # COLMAP needs consistent feature visibility across all images —
+            # dark outliers reduce match count and create holes in the model.
+            #
+            # Strategy: use the 75th-percentile image brightness as the
+            # reference. Any image more than 20% below that reference gets
+            # gamma-corrected individually up to the reference level.
+            # Images already at or above the reference are never touched.
+            if image_files:
+                file_means = [
+                    (p, ImageStat.Stat(Image.open(p).convert("L")).mean[0])
+                    for p in image_files
+                ]
+                sorted_means = sorted(m for _, m in file_means)
+                p75 = sorted_means[int(len(sorted_means) * 0.75)]
+                threshold = p75 * 0.80   # correct if >20% below the reference
+
+                corrections = []
+                for p, img_mean in file_means:
+                    if img_mean < threshold:
+                        lut = _gamma_lut(img_mean, p75)
+                        img = Image.open(p).convert("RGB")
+                        img = img.point(lut * 3)
+                        kw = {"quality": 95} if p.suffix.lower() in (".jpg", ".jpeg") else {}
+                        img.save(p, **kw)
+                        corrections.append((p.name, img_mean))
+
+                if corrections:
+                    print(f"[pipeline] Mixed-lighting correction: "
+                          f"{len(corrections)}/{len(image_files)} dark images normalised "
+                          f"(reference p75={p75:.1f})")
+                    for name, old_mean in corrections:
+                        print(f"[pipeline]   {name}: {old_mean:.1f} → ~{p75:.1f}")
+
+                    # Upload all (corrected + unchanged) images to enhanced/ in R2
+                    # so the insurer can view them via "View Enhanced Photos" button.
+                    # Only uploaded when corrections were actually made.
+                    for p in image_files:
+                        s3.upload_file(
+                            str(p), r2_bucket,
+                            f"jobs/{job_id}/enhanced/{p.name}",
+                        )
+                    print(f"[pipeline] Uploaded {len(image_files)} normalised images to R2 enhanced/")
+                else:
+                    print(f"[pipeline] Mixed-lighting check: all images within range "
+                          f"(p75={p75:.1f}, threshold={threshold:.1f})")
 
         steps[1].update({"status": "done", "completed_at": now()})
         steps[2].update({"status": "running", "started_at": now()})
@@ -387,10 +560,11 @@ def run_pipeline(
              ], label="colmap feature_extractor")
 
         # 2b. Exhaustive matching — CPU mode (same headless OpenGL constraint)
-        run(["colmap", "exhaustive_matcher",
+        matcher_out = run(["colmap", "exhaustive_matcher",
              "--database_path",          str(colmap_db),
              "--SiftMatching.use_gpu",   "0",
-             ], label="colmap exhaustive_matcher")
+             ], label="colmap exhaustive_matcher", log_output=True)
+        _parse_colmap_matches(matcher_out)
 
         # 2c. Sparse reconstruction (SfM)
         run(["colmap", "mapper",
@@ -428,7 +602,7 @@ def run_pipeline(
         train_dir = Path("/tmp/pipeline/train")
         train_dir.mkdir(parents=True, exist_ok=True)
 
-        run(
+        train_out = run(
             [
                 "ns-train", "splatfacto",
                 "--data", str(processed_dir),
@@ -441,10 +615,38 @@ def run_pipeline(
                 "--machine.device-type", "cuda",
                 "--vis", "tensorboard",
                 "--viewer.quit-on-train-completion", "True",
+                # Scale regularization prevents large blurry Gaussians → sharper model
+                "--pipeline.model.use-scale-regularization", "True",
+                "--pipeline.model.eval-num-rays-per-chunk", "1024",
                 "nerfstudio-data",
             ],
             label="ns-train splatfacto (CUDA)",
+            log_output=True,
         )
+        _parse_nerfstudio_metrics(train_out)
+
+        # ── TensorBoard metrics (PSNR / SSIM) ──────────────────────────────
+        try:
+            from tensorboard.backend.event_processing.event_accumulator import EventAccumulator
+            tb_dir = train_dir / "splat" / "splatfacto"
+            tb_dirs = sorted(tb_dir.glob("*/"))
+            if tb_dirs:
+                ea = EventAccumulator(str(tb_dirs[-1]))
+                ea.Reload()
+                tags = ea.Tags().get("scalars", [])
+                print(f"[pipeline] TensorBoard tags: {tags}")
+                psnr_tag = next((t for t in tags if "psnr" in t.lower()), None)
+                ssim_tag = next((t for t in tags if "ssim" in t.lower()), None)
+                if psnr_tag:
+                    print(f"[pipeline] TensorBoard PSNR: {ea.Scalars(psnr_tag)[-1].value:.2f} dB")
+                if ssim_tag:
+                    print(f"[pipeline] TensorBoard SSIM: {ea.Scalars(ssim_tag)[-1].value:.4f}")
+                if not psnr_tag and not ssim_tag:
+                    print("[pipeline] TensorBoard: no PSNR/SSIM tags found")
+            else:
+                print("[pipeline] TensorBoard: no event directory found")
+        except Exception as _tb_err:
+            print(f"[pipeline] TensorBoard read failed ({_tb_err})")
 
         steps[3].update({"status": "done", "completed_at": now()})
         steps[4].update({"status": "running", "started_at": now()})
@@ -456,6 +658,31 @@ def run_pipeline(
         )
         if not config_files:
             raise FileNotFoundError(f"ns-train produced no config.yml in {train_dir}")
+
+        # ── Checkpoint-based PSNR / SSIM logging ───────────────────────────
+        try:
+            import torch as _torch
+            import numpy as _np
+            import json as _json
+
+            _torch.serialization.add_safe_globals([_np.core.multiarray.scalar])
+
+            _ckpt_dir = Path(config_files[-1]).parent / "nerfstudio_models"
+            _ckpts = sorted(_ckpt_dir.glob("*.ckpt"), key=lambda p: p.stat().st_mtime)
+            if _ckpts:
+                _state = _torch.load(str(_ckpts[-1]), map_location="cpu", weights_only=False)
+                _met = _state.get("metrics", {})
+                _psnr = _met.get("psnr")
+                _ssim = _met.get("ssim")
+                if _psnr is not None and _ssim is not None:
+                    print(f"[pipeline] PSNR: {_psnr:.2f} dB")
+                    print(f"[pipeline] SSIM: {_ssim:.4f}")
+                else:
+                    print("[pipeline] eval: metrics not stored in checkpoint")
+            else:
+                print("[pipeline] eval: no checkpoints found")
+        except Exception as _eval_err:
+            print(f"[pipeline] eval skipped ({_eval_err})")
 
         export_dir = Path("/tmp/pipeline/export")
         export_dir.mkdir(parents=True, exist_ok=True)
@@ -489,12 +716,82 @@ def run_pipeline(
         if not ply_files:
             raise FileNotFoundError(f"ns-export produced no .ply in {export_dir}")
 
+        # ── Smart brightness correction ─────────────────────────────────────
+        #
+        # Smartphone cameras apply HDR tone mapping when saving JPEGs — the
+        # photos look bright on screen but nerfstudio trains on the raw pixel
+        # values and renders without that tone mapping. Only correct when there
+        # is an actual measured gap between input photo brightness and the
+        # brightness of nerfstudio's eval renders.
+        #
+        # We compare:
+        #   overall_mean   — mean brightness of the original input photos
+        #   render_mean    — mean brightness of nerfstudio's saved eval renders
+        #
+        # If renders are >15% darker than inputs: scale up the DC spherical
+        # harmonics coefficients in the PLY (the base color of every Gaussian).
+        # This is a fast post-process — no re-training needed.
+        try:
+            run_dir = Path(config_files[-1]).parent   # {train_dir}/splat/splatfacto/{timestamp}/
+            renders_dir = run_dir / "renders"
+            render_files = (
+                list(renders_dir.glob("*.png")) + list(renders_dir.glob("*.jpg"))
+                if renders_dir.exists() else []
+            )
+            if render_files and image_files:
+                sample_renders = render_files[:: max(1, len(render_files) // 5)][:5]
+                render_means = [
+                    ImageStat.Stat(Image.open(rf).convert("L")).mean[0]
+                    for rf in sample_renders
+                ]
+                render_mean = sum(render_means) / len(render_means)
+                brightness_ratio = render_mean / max(overall_mean, 1.0)
+                print(f"[pipeline] Brightness check — inputs: {overall_mean:.1f}  "
+                      f"renders: {render_mean:.1f}  ratio: {brightness_ratio:.2f}")
+
+                if brightness_ratio < 0.85:
+                    boost = min(1.0 / brightness_ratio, 2.5)
+                    print(f"[pipeline] Renders {100*(1-brightness_ratio):.0f}% darker than inputs — "
+                          f"boosting PLY DC colors ×{boost:.2f}")
+
+                    from plyfile import PlyData, PlyElement
+
+                    ply_path = ply_files[0]
+                    ply_data = PlyData.read(str(ply_path))
+                    vertex = ply_data["vertex"]
+                    arr = vertex.data.copy()
+
+                    for prop in ("f_dc_0", "f_dc_1", "f_dc_2"):
+                        if prop in arr.dtype.names:
+                            arr[prop] = (arr[prop] * boost).astype(arr[prop].dtype)
+
+                    PlyData(
+                        [PlyElement.describe(arr, "vertex")],
+                        text=False,
+                    ).write(str(ply_path))
+                    print("[pipeline] PLY brightness correction applied")
+                else:
+                    print("[pipeline] Brightness looks good — no PLY correction needed")
+            else:
+                print("[pipeline] No eval renders found — skipping brightness check")
+        except Exception as _bright_err:
+            print(f"[pipeline] Brightness correction skipped ({_bright_err})")
+
         # ── 5. Upload splat.ply to R2 ───────────────────────────────────────
         splat_r2_key = f"jobs/{job_id}/splat.ply"
         s3.upload_file(str(ply_files[0]), r2_bucket, splat_r2_key)
 
         steps[4].update({"status": "done", "completed_at": now()})
         put_status(steps, "completed")
+
+        total = time.time() - _pipeline_start
+        print(f"\n[pipeline] ── Summary ──────────────────────────────")
+        print(f"[pipeline] Total pipeline time: {total:.1f}s ({total/60:.1f} min)")
+        for s in steps:
+            if s.get("started_at") and s.get("completed_at"):
+                dur = s["completed_at"] - s["started_at"]
+                print(f"[pipeline]   {s['key']:10s}: {dur:.1f}s")
+        print(f"[pipeline] ────────────────────────────────────────────")
 
         return {"splat_key": splat_r2_key}
 

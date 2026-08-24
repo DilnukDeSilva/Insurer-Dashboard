@@ -100,6 +100,10 @@ function CompareScene({ glbUrl }: { glbUrl?: string }) {
 type CompareViewCanvasProps = {
   glbUrl?: string;
   splatUrl?: string;
+  isLoading?: boolean;
+  expanded?: boolean;
+  onToggleExpand?: () => void;
+  isTransitioning?: boolean;
 };
 
 function downloadFile(url: string, filename: string) {
@@ -109,7 +113,7 @@ function downloadFile(url: string, filename: string) {
   a.click();
 }
 
-export function CompareViewCanvas({ glbUrl, splatUrl }: CompareViewCanvasProps) {
+export function CompareViewCanvas({ glbUrl, splatUrl, isLoading, expanded, onToggleExpand, isTransitioning }: CompareViewCanvasProps) {
   const hasModel = !!(splatUrl || glbUrl);
 
   return (
@@ -118,27 +122,44 @@ export function CompareViewCanvas({ glbUrl, splatUrl }: CompareViewCanvasProps) 
         <h3 className="compare-view__title">
           {hasModel ? "Generated 3D Model" : "Compare view"}
         </h3>
-        {splatUrl && (
-          <button
-            type="button"
-            className="compare-view__download"
-            onClick={() => downloadFile(splatUrl, "model.ply")}
-          >
-            Download PLY
-          </button>
-        )}
-        {!splatUrl && glbUrl && (
-          <button
-            type="button"
-            className="compare-view__download"
-            onClick={() => downloadFile(glbUrl, "model.glb")}
-          >
-            Download GLB
-          </button>
-        )}
+        <div className="compare-view__header-actions">
+          {splatUrl && (
+            <button
+              type="button"
+              className="compare-view__download"
+              onClick={() => downloadFile(splatUrl, "model.ply")}
+            >
+              Download PLY
+            </button>
+          )}
+          {!splatUrl && glbUrl && (
+            <button
+              type="button"
+              className="compare-view__download"
+              onClick={() => downloadFile(glbUrl, "model.glb")}
+            >
+              Download GLB
+            </button>
+          )}
+          {onToggleExpand && (
+            <button
+              type="button"
+              className="compare-view__expand"
+              onClick={onToggleExpand}
+              title={expanded ? "Collapse view" : "Expand 3D model"}
+              aria-label={expanded ? "Collapse view" : "Expand 3D model"}
+            >
+              {expanded ? "⤡" : "⤢"}
+            </button>
+          )}
+        </div>
       </div>
       <div className="compare-view__canvas-wrap">
-        {splatUrl ? (
+        {isTransitioning ? (
+          <div className="compare-view__empty">
+            <div className="compare-view__spinner" aria-label="Loading" />
+          </div>
+        ) : splatUrl ? (
           <GaussianSplatViewer url={splatUrl} />
         ) : glbUrl ? (
           <Canvas
@@ -150,6 +171,11 @@ export function CompareViewCanvas({ glbUrl, splatUrl }: CompareViewCanvasProps) 
               <CompareScene glbUrl={glbUrl} />
             </Suspense>
           </Canvas>
+        ) : isLoading ? (
+          <div className="compare-view__empty">
+            <div className="compare-view__spinner" aria-label="Loading" />
+            <p>Checking for 3D models…</p>
+          </div>
         ) : (
           <div className="compare-view__empty">
             <p>No 3D model generated yet.</p>

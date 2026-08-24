@@ -10,6 +10,7 @@ from pydantic import BaseModel
 from app.core.dependencies import require_role
 from app.db.mongo import get_db
 from app.services.auth import hash_password
+from app.services.supabase_service import sb_get, sb_patch, sb_post
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 
@@ -21,14 +22,23 @@ admin_or_agent = require_role("admin", "agent")
 
 class CompanyCreate(BaseModel):
     name: str
-    code: str
+    app_name: str
+    phone_tel: Optional[str] = None
+    contact_email: Optional[str] = None
+
+
+class CompanyUpdate(BaseModel):
+    name: str
+    app_name: str
+    phone_tel: Optional[str] = None
     contact_email: Optional[str] = None
 
 
 class CompanyOut(BaseModel):
     id: str
     name: str
-    code: str
+    app_name: str
+    phone_tel: Optional[str] = None
     contact_email: Optional[str] = None
     is_active: bool
 
@@ -53,56 +63,56 @@ class UserOut(BaseModel):
 
 # ── Companies ──────────────────────────────────────────────────
 
+def _row_to_company(r: Dict[str, Any]) -> CompanyOut:
+    return CompanyOut(
+        id=r["id"],
+        name=r["company_name"],
+        app_name=r.get("app_name") or "",
+        phone_tel=r.get("phone_tel"),
+        contact_email=r.get("contact_email"),
+        is_active=r.get("is_active", True),
+    )
+
+
 @router.get("/companies", response_model=List[CompanyOut])
 async def list_companies(_: dict = Depends(admin_only)) -> List[CompanyOut]:
-    db = get_db()
-    docs = await db["companies"].find().to_list(length=200)
-    return [
-        CompanyOut(
-            id=str(d["_id"]),
-            name=d["name"],
-            code=d["code"],
-            contact_email=d.get("contact_email"),
-            is_active=d.get("is_active", True),
-        )
-        for d in docs
-    ]
+    rows = await sb_get("insurance_companies", {"select": "*", "order": "company_name.asc"})
+    return [_row_to_company(r) for r in rows]
 
 
 @router.post("/companies", response_model=CompanyOut)
 async def create_company(body: CompanyCreate, _: dict = Depends(admin_only)) -> CompanyOut:
-    db = get_db()
-    existing = await db["companies"].find_one({"code": body.code})
-    if existing:
-        raise HTTPException(status_code=409, detail="Company code already exists")
-
-    doc: Dict[str, Any] = {
-        "name": body.name,
-        "code": body.code,
+    row = await sb_post("insurance_companies", {
+        "company_name": body.name,
+        "app_name": body.app_name,
+        "phone_tel": body.phone_tel,
         "contact_email": body.contact_email,
         "is_active": True,
-        "created_at": datetime.now(timezone.utc),
-    }
-    result = await db["companies"].insert_one(doc)
-    return CompanyOut(
-        id=str(result.inserted_id),
-        name=body.name,
-        code=body.code,
-        contact_email=body.contact_email,
-        is_active=True,
-    )
+    })
+    return _row_to_company(row)
+
+
+@router.put("/companies/{company_id}", response_model=CompanyOut)
+async def update_company(company_id: str, body: CompanyUpdate, _: dict = Depends(admin_only)) -> CompanyOut:
+    await sb_patch("insurance_companies", "id", company_id, {
+        "company_name": body.name,
+        "app_name": body.app_name,
+        "phone_tel": body.phone_tel,
+        "contact_email": body.contact_email,
+    })
+    rows = await sb_get("insurance_companies", {"id": f"eq.{company_id}", "select": "*"})
+    if not rows:
+        raise HTTPException(status_code=404, detail="Company not found")
+    return _row_to_company(rows[0])
 
 
 @router.patch("/companies/{company_id}")
 async def toggle_company(company_id: str, _: dict = Depends(admin_only)) -> Dict[str, Any]:
-    db = get_db()
-    doc = await db["companies"].find_one({"_id": ObjectId(company_id)})
-    if not doc:
+    rows = await sb_get("insurance_companies", {"id": f"eq.{company_id}", "select": "is_active"})
+    if not rows:
         raise HTTPException(status_code=404, detail="Company not found")
-    new_state = not doc.get("is_active", True)
-    await db["companies"].update_one(
-        {"_id": ObjectId(company_id)}, {"$set": {"is_active": new_state}}
-    )
+    new_state = not rows[0].get("is_active", True)
+    await sb_patch("insurance_companies", "id", company_id, {"is_active": new_state})
     return {"id": company_id, "is_active": new_state}
 
 
@@ -113,13 +123,14 @@ async def list_users(_: dict = Depends(admin_only)) -> List[UserOut]:
     db = get_db()
     users = await db["users"].find().to_list(length=500)
 
-    company_ids = [u["company_id"] for u in users if u.get("company_id")]
+    # Company names come from Supabase (where insurance_companies is managed),
+    # not from MongoDB — fetch all at once and index by id.
     companies: Dict[str, str] = {}
-    if company_ids:
-        docs = await db["companies"].find(
-            {"_id": {"$in": [ObjectId(c) for c in company_ids]}}
-        ).to_list(length=200)
-        companies = {str(d["_id"]): d["name"] for d in docs}
+    try:
+        rows = await sb_get("insurance_companies", {"select": "id,company_name"})
+        companies = {r["id"]: r["company_name"] for r in rows}
+    except Exception:
+        pass
 
     return [
         UserOut(
@@ -141,13 +152,12 @@ async def create_user(body: UserCreate, _: dict = Depends(admin_only)) -> UserOu
     if await db["users"].find_one({"email": body.email}):
         raise HTTPException(status_code=409, detail="Email already registered")
 
-    company_oid = ObjectId(body.company_id) if body.company_id else None
     doc: Dict[str, Any] = {
         "email": body.email,
         "password_hash": hash_password(body.password),
         "name": body.name,
         "role": body.role,
-        "company_id": company_oid,
+        "company_id": body.company_id or None,
         "is_active": True,
         "created_at": datetime.now(timezone.utc),
     }
@@ -189,7 +199,7 @@ async def agent_create_staff(
     if await db["users"].find_one({"email": body.email}):
         raise HTTPException(status_code=409, detail="Email already registered")
 
-    company_id = body.company_id or current_user.get("company_id")
+    company_id = body.company_id or current_user.get("company_id") or None
     doc: Dict[str, Any] = {
         "email": body.email,
         "password_hash": hash_password(body.password),

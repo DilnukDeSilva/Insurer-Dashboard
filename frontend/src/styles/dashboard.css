@@ -24,6 +24,12 @@
   gap: 1rem;
   padding: 0 1rem 1rem;
   min-height: 0;
+  transition: grid-template-columns 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* Expanded 3D view: narrow claims list + wide detail panel */
+.dashboard__content--expanded {
+  grid-template-columns: 240px 1fr;
 }
 
 @media (max-width: 960px) {
@@ -86,7 +92,7 @@
 
 .dash-header__admin-btn {
   padding: 0.3rem 0.85rem;
-  border: 1px solid var(--color-brand);
+  border: 2px solid var(--color-brand);
   border-radius: var(--radius-pill);
   background: none;
   color: var(--color-brand);
@@ -159,6 +165,27 @@
   border: 1.5px solid #1f2937;
   padding: 1rem 1rem 0.5rem;
   overflow: hidden;
+}
+
+/* Slim mode: toolbar hidden, only Customer + Submitted visible */
+.claims-panel--slim {
+  padding: 0.65rem 0.6rem;
+}
+
+.claims-panel--slim .claims-panel__sort {
+  font-size: 0.72rem;
+  padding: 0.25rem 0;
+  margin-bottom: 0.3rem;
+}
+
+.claims-panel--slim .claims-table th,
+.claims-panel--slim .claims-table td {
+  font-size: 0.78rem;
+  padding: 0.5rem 0.65rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 140px;
 }
 
 .claims-panel__toolbar {
@@ -254,6 +281,23 @@
   font-weight: 500;
 }
 
+.claims-table__name {
+  display: block;
+}
+
+.claims-table__sub {
+  display: block;
+  font-size: 0.72rem;
+  color: var(--color-text-muted);
+  margin-top: 0.1rem;
+  font-weight: 400;
+}
+
+.claims-table__row--selected .claims-table__sub {
+  color: var(--color-brand);
+  opacity: 0.75;
+}
+
 /* ─── Claim detail (right panel) ─────────────────────────── */
 
 .claim-detail {
@@ -268,6 +312,145 @@
   border: 1.5px solid #1f2937;
   padding: 0.85rem 1rem;
   overflow: hidden;
+  transition: padding 0.4s cubic-bezier(0.4, 0, 0.2, 1),
+              gap 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* Expanded: claim info left column + 3D canvas right */
+.claim-detail--expanded {
+  flex-direction: row;
+  gap: 0;
+  padding: 0;
+}
+
+.claim-detail--expanded .claim-info {
+  width: 280px;
+  flex-shrink: 0;
+  padding: 0.85rem 0.75rem;
+  border-right: 1px solid #e5e7eb;
+  overflow-y: auto;
+}
+
+/* ── Transition animations (only fire during the 420ms isAnimating window) ── */
+
+.claim-detail--animating {
+  animation: detail-fade 0.42s cubic-bezier(0.4, 0, 0.2, 1) both;
+}
+
+@keyframes detail-fade {
+  0%   { opacity: 0.15; transform: scale(0.985); }
+  55%  { opacity: 0.9;  }
+  100% { opacity: 1;    transform: scale(1); }
+}
+
+/* Expanding → info panel slides in from left */
+.claim-detail--animating.claim-detail--expanded .claim-info {
+  animation: info-slide-in 0.4s cubic-bezier(0.34, 1.3, 0.64, 1) 0.06s both;
+}
+
+@keyframes info-slide-in {
+  from { opacity: 0; transform: translateX(-20px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+
+/* Expanding → 3D canvas area grows in */
+.claim-detail--animating.claim-detail--expanded .claim-detail__compare {
+  animation: canvas-grow 0.4s cubic-bezier(0.4, 0, 0.2, 1) 0.12s both;
+}
+
+@keyframes canvas-grow {
+  from { opacity: 0; transform: scale(0.94); }
+  to   { opacity: 1; transform: scale(1); }
+}
+
+/* Collapsing → claim body slides in from right */
+.claim-detail--animating:not(.claim-detail--expanded) .claim-body {
+  animation: body-slide-in 0.38s cubic-bezier(0.34, 1.2, 0.64, 1) 0.06s both;
+}
+
+@keyframes body-slide-in {
+  from { opacity: 0; transform: translateX(18px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+
+.claim-detail--expanded .claim-body {
+  flex-direction: column;
+  gap: 0.65rem;
+}
+
+.claim-detail--expanded .claim-rows {
+  width: 100%;
+}
+
+.claim-detail--expanded .claim-views {
+  width: 100%;
+  flex-direction: column;
+}
+
+.claim-detail--expanded .claim-btns {
+  width: 100%;
+  flex-direction: column;
+}
+
+.claim-detail--expanded .claim-detail__compare {
+  flex: 1;
+  min-height: 0;
+  padding: 0.5rem;
+}
+
+/* Inline label — value rows in expanded mode */
+
+/* Transparent wrapper in normal grid mode so label/value stay direct grid children */
+.irow__header {
+  display: contents;
+}
+
+.claim-detail--expanded .irow {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.2rem;
+  padding: 0.30rem 0.65rem;
+  border-bottom: 1px solid #f3f4f6;
+  border-radius: 0;
+}
+
+.claim-detail--expanded .irow:hover {
+  background: #f9fafb;
+}
+
+/* In expanded mode the wrapper becomes a real flex row */
+.claim-detail--expanded .irow__header {
+  display: flex;
+  flex-direction: row;
+  align-items: baseline;
+  gap: 0.25rem;
+}
+
+.claim-detail--expanded .irow__label {
+  font-size: 0.88rem;
+  font-weight: 500;
+  color: var(--color-text-muted);
+  white-space: nowrap;
+  text-transform: none;
+  letter-spacing: normal;
+}
+
+.claim-detail--expanded .irow__label::after {
+  content: " -";
+  color: var(--color-text-placeholder);
+}
+
+.claim-detail--expanded .irow__value {
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: var(--color-text);
+  word-break: break-all;
+}
+
+.claim-detail--expanded .badge--pass,
+.claim-detail--expanded .badge--fail {
+  margin-top: 0;
 }
 
 /* ── Info section ─────────────────────────── */
@@ -400,30 +583,40 @@
   padding: 0.32rem 0.65rem;
   border: 1px solid var(--color-brand);
   border-radius: var(--radius-sm);
-  background: var(--color-bg-panel);
-  color: var(--color-text-secondary);
+  background: none;
+  color: var(--color-brand);
   font-size: 0.78rem;
   font-family: inherit;
   cursor: pointer;
   text-align: left;
   white-space: nowrap;
   width: 100%;
+  transition: background 0.15s ease, color 0.15s ease;
 }
 
 .action-view:hover {
-  background: var(--color-brand-bg);
+  background: var(--color-brand);
+  color: #fff;
 }
 
 .action-view--disabled {
   border-color: #d1d5db;
+  color: #9ca3af;
   cursor: default;
   opacity: 0.55;
 }
 
+.action-view--disabled:hover {
+  background: none;
+  transform: none;
+  box-shadow: none;
+}
+
 .action-view__arrow {
-  color: var(--color-brand);
-  font-size: 0.75rem;
+  color: inherit;
   flex-shrink: 0;
+  display: flex;
+  align-items: center;
 }
 
 .action-view__arrow--na {
@@ -488,6 +681,19 @@
   color: var(--color-text-muted);
   padding: 0.3rem 0;
   text-align: center;
+}
+
+.btn-spinner {
+  display: inline-block;
+  width: 11px;
+  height: 11px;
+  border: 2px solid rgba(255, 255, 255, 0.35);
+  border-top-color: #fff;
+  border-radius: 50%;
+  animation: spin 0.6s linear infinite;
+  vertical-align: middle;
+  margin-right: 0.4rem;
+  flex-shrink: 0;
 }
 
 /* ── Enhanced photos overlay ─────────────────────────── */
@@ -745,6 +951,63 @@
   text-decoration: underline;
 }
 
+.ai-loc__coords-btn {
+  display: inline-flex;
+  align-items: center;
+  align-self: flex-start;
+  gap: 0.3rem;
+  padding: 0.22rem 0.55rem;
+  border: 2px solid var(--color-brand);
+  border-radius: var(--radius-sm);
+  background: var(--color-bg-panel);
+  color: var(--color-text-secondary);
+  font-size: 0.8rem;
+  font-weight: 500;
+  text-decoration: none;
+  transition: border-color 0.12s, background 0.12s, color 0.12s;
+}
+
+.ai-loc__coords-btn::after {
+  content: "↗";
+  font-size: 0.75rem;
+  color: var(--color-brand);
+  flex-shrink: 0;
+}
+
+.ai-loc__coords-btn:hover {
+  border-color: var(--color-brand);
+  background: var(--color-brand-bg);
+  color: var(--color-brand);
+}
+
+.location-row__coords-link {
+  display: inline-flex;
+  align-items: center;
+  align-self: flex-start;
+  gap: 0.3rem;
+  padding: 0.22rem 0.55rem;
+  border: 2px solid var(--color-brand);
+  border-radius: var(--radius-sm);
+  background: var(--color-bg-panel);
+  color: var(--color-text-secondary);
+  font-size: 0.8rem;
+  font-weight: 500;
+  text-decoration: none;
+  transition: border-color 0.12s, background 0.12s, color 0.12s;
+}
+
+.location-row__coords-link::after {
+  content: "↗";
+  font-size: 0.7rem;
+  color: var(--color-brand);
+}
+
+.location-row__coords-link:hover {
+  border-color: var(--color-brand);
+  background: var(--color-brand-bg);
+  color: var(--color-brand);
+}
+
 .accident-images__media {
   flex: 1;
   min-width: 0;
@@ -900,6 +1163,32 @@
   cursor: pointer;
   padding: 0;
   flex-shrink: 0;
+}
+
+.ps-float__dismiss {
+  background: none;
+  border: none;
+  color: #94a3b8;
+  font-size: 1rem;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0 0 0 0.15rem;
+  flex-shrink: 0;
+}
+
+.ps-float__dismiss:hover {
+  color: #e2e8f0;
+}
+
+.ps-float__claim {
+  padding: 0.2rem 0.75rem 0.4rem;
+  font-size: 0.72rem;
+  color: #94a3b8;
+  border-top: 1px solid rgba(255,255,255,0.08);
+}
+
+.ps-float__claim strong {
+  color: #cbd5e1;
 }
 
 .ps-float__body {

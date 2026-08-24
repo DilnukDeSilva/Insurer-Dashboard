@@ -1,32 +1,57 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { ClaimDetailPanel } from "../components/dashboard/ClaimDetailPanel";
 import { ClaimsListPanel } from "../components/dashboard/ClaimsListPanel";
 import { DashboardHeader } from "../components/dashboard/DashboardHeader";
+import { PipelineSteps } from "../components/dashboard/PipelineSteps";
+import { PipelineJobProvider, usePipelineJob } from "../context/PipelineJobContext";
 import { useAuth } from "../context/AuthContext";
 import { fetchClaims } from "../data/claims";
 import type { Claim } from "../types/claim";
 
-export function DashboardPage({ onAdminClick }: { onAdminClick?: () => void }) {
+function GlobalPipelineWidget() {
+  const { activeJob, clearJob } = usePipelineJob();
+  if (!activeJob) return null;
+  return (
+    <PipelineSteps
+      steps={activeJob.steps}
+      modelState={activeJob.state}
+      claimLabel={activeJob.label}
+      onDismiss={activeJob.state !== "generating" ? clearJob : undefined}
+    />
+  );
+}
+
+function DashboardInner({ onAdminClick }: { onAdminClick?: () => void }) {
   const { user } = useAuth();
   const [claims, setClaims] = useState<Claim[]>([]);
-  const [selectedNic, setSelectedNic] = useState<string>("");
+  const [selectedFolder, setSelectedFolder] = useState<string>("");
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [expanded, setExpanded] = useState(false);
+  const [isAnimating, setIsAnimating] = useState(false);
+  const animTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const handleToggleExpand = () => {
+    if (animTimer.current) clearTimeout(animTimer.current);
+    setIsAnimating(true);
+    setExpanded((v) => !v);
+    animTimer.current = setTimeout(() => setIsAnimating(false), 420);
+  };
 
   useEffect(() => {
     fetchClaims()
       .then((data) => {
         setClaims(data);
-        if (data.length > 0) setSelectedNic(data[0].nic);
+        if (data.length > 0) setSelectedFolder(data[0].folder);
       })
       .catch((e: unknown) => setError(e instanceof Error ? e.message : "Failed to load claims"))
       .finally(() => setLoading(false));
   }, []);
 
   const selectedClaim = useMemo(
-    () => claims.find((c) => c.nic === selectedNic) ?? claims[0],
-    [claims, selectedNic],
+    () => claims.find((c) => c.folder === selectedFolder) ?? claims[0],
+    [claims, selectedFolder],
   );
 
   return (
@@ -38,19 +63,36 @@ export function DashboardPage({ onAdminClick }: { onAdminClick?: () => void }) {
       {error && <p style={{ padding: "2rem", color: "red" }}>{error}</p>}
 
       {!loading && !error && (
-        <div className="dashboard__content">
+        <div className={`dashboard__content${expanded ? " dashboard__content--expanded" : ""}`}>
           <ClaimsListPanel
             claims={claims}
-            selectedNic={selectedNic}
+            selectedFolder={selectedFolder}
             search={search}
             onSearchChange={setSearch}
-            onSelect={setSelectedNic}
+            onSelect={setSelectedFolder}
+            expanded={expanded}
           />
           {selectedClaim && (
-            <ClaimDetailPanel claim={selectedClaim} key={selectedClaim.nic} />
+            <ClaimDetailPanel
+              claim={selectedClaim}
+              key={selectedClaim.folder}
+              expanded={expanded}
+              onToggleExpand={handleToggleExpand}
+              isAnimating={isAnimating}
+            />
           )}
         </div>
       )}
+
+      <GlobalPipelineWidget />
     </div>
+  );
+}
+
+export function DashboardPage({ onAdminClick }: { onAdminClick?: () => void }) {
+  return (
+    <PipelineJobProvider>
+      <DashboardInner onAdminClick={onAdminClick} />
+    </PipelineJobProvider>
   );
 }

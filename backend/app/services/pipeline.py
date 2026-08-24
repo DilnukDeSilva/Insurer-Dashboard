@@ -14,14 +14,15 @@ from app.schemas.pipeline import (
     PipelineStep,
     StepStatus,
 )
+from app.services.claims_privacy_status import mark_capture_pending_review
 from app.services.r2 import R2Service
 
 STEPS = [
     ("download", "Downloading images"),
     ("enhance",  "Enhancing image brightness"),
-    ("colmap",   "Structure from Motion (COLMAP)"),
-    ("train",    "Training Gaussian Splat"),
-    ("export",   "Exporting splat model"),
+    ("colmap",   "Mapping camera positions"),
+    ("train",    "Reconstructing 3D model"),
+    ("export",   "Exporting 3D model"),
 ]
 
 # In-memory stores (reset on restart)
@@ -47,7 +48,7 @@ class PipelineService:
     # create_job — download images locally to verify they exist in R2,
     # then store the R2 prefix so run_job can pass it to Modal.
     # ------------------------------------------------------------------
-    def create_job(self, customer_name: str, nic: str) -> PipelineJobResponse:
+    def create_job(self, folder: str, customer_name: str, nic: str) -> PipelineJobResponse:
         job_id = str(uuid.uuid4())
         images_dir = settings.jobs_dir / job_id / "images"
 
@@ -58,13 +59,18 @@ class PipelineService:
         )
         _job_status[job_id] = status
 
-        r2_prefix = f"{customer_name} - {nic}/step-1-photos-uploaded/"
-        _job_meta[job_id] = {"r2_prefix": r2_prefix}
+        r2_prefix = f"{folder}/step-1-photos-uploaded/"
+        _job_meta[job_id] = {
+            "r2_prefix": r2_prefix,
+            "folder": folder,
+            "customer_name": customer_name,
+            "nic": nic,
+        }
 
         status.steps[0].status = StepStatus.RUNNING
         status.steps[0].started_at = time.time()
 
-        self.r2.download_accident_images(customer_name, nic, images_dir)
+        self.r2.download_accident_images(folder, images_dir)
         image_count = len(list(images_dir.glob("*")))
 
         status.steps[0].status = StepStatus.DONE
@@ -78,6 +84,7 @@ class PipelineService:
                 nic=nic,
                 customer=customer_name,
                 created_at=datetime.now(_tz.utc).isoformat(),
+                folder=folder,
             )
         except Exception:
             pass  # non-fatal — pipeline still runs
@@ -110,7 +117,7 @@ class PipelineService:
 
             print(f"[pipeline] Modal function found, spawning...")
             # Spawn the GPU function (returns immediately)
-            call = fn.spawn(
+            call = await fn.spawn.aio(
                 job_id=job_id,
                 r2_endpoint=settings.r2_endpoint_url,
                 r2_key_id=settings.r2_access_key_id,
@@ -164,11 +171,19 @@ class PipelineService:
                     message="Photos too dark for 3D — enhanced images available.",
                 )
 
-            splat_local = settings.jobs_dir / job_id / "gs" / "splat" / "splat.ply"
-            self.r2.download_file(f"jobs/{job_id}/splat.ply", splat_local)
-
             status.overall = PipelineJobStatus.COMPLETED
             status.model_url = f"/api/pipeline/jobs/{job_id}/splat"
+
+            # Best-effort — a failure here must not affect the pipeline's own success
+            # response, see claims_privacy_status.py.
+            try:
+                await mark_capture_pending_review(
+                    nic=meta.get("nic", ""),
+                    customer_name=meta.get("customer_name", ""),
+                    folder=meta.get("folder", ""),
+                )
+            except Exception as exc:
+                print(f"[pipeline] mark_capture_pending_review failed: {exc}")
 
             return PipelineJobResponse(
                 job_id=job_id,

@@ -4,6 +4,7 @@ type GaussianSplatViewerProps = {
   url: string;
 };
 
+
 export function GaussianSplatViewer({ url }: GaussianSplatViewerProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any

@@ -1,9 +1,10 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { AccidentImage, Claim } from "../../types/claim";
 
 type MediaViewerPanelProps = {
   title: string;
   urls: AccidentImage[];
+  loading?: boolean;
   visible: boolean;
   onClose: () => void;
   claim: Claim;
@@ -38,8 +39,10 @@ function formatCoords(img: AccidentImage): string {
   return "—";
 }
 
-export function MediaViewerPanel({ title, urls, visible, onClose }: MediaViewerPanelProps) {
+export function MediaViewerPanel({ title, urls, loading, visible, onClose }: MediaViewerPanelProps) {
   const [activeIndex, setActiveIndex] = useState(0);
+
+  useEffect(() => { setActiveIndex(0); }, [urls]);
 
   if (!visible) return null;
 
@@ -54,47 +57,66 @@ export function MediaViewerPanel({ title, urls, visible, onClose }: MediaViewerP
       </div>
 
       <div className="accident-images__body">
-        {/* Left: per-photo location info */}
-        <div className="accident-images__loc">
-          <p className="ai-loc__label">Photo Location</p>
-          <p className="ai-loc__address">{active ? formatCoords(active) : "—"}</p>
-          <div className="ai-loc__divider" />
-          <p className="ai-loc__label">Photo Timestamp</p>
-          <p className="ai-loc__value">{active ? formatCapturedAt(active.captured_at) : "—"}</p>
-        </div>
-
-        {/* Right: original media viewer */}
-        <div className="accident-images__media">
-          <div className="accident-images__main">
-            {urls.length > 0 ? (
-              isVideo(activeUrl) ? (
-                <video key={activeUrl} src={activeUrl} controls style={{ maxWidth: "100%", maxHeight: "100%" }} />
-              ) : (
-                <img src={activeUrl} alt={`${title} — item ${activeIndex + 1}`} />
-              )
-            ) : (
-              <p style={{ color: "var(--color-text-placeholder)", fontSize: "0.85rem" }}>No media available</p>
-            )}
+        {loading ? (
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "center", flex: 1, color: "var(--color-text-placeholder)", fontSize: "0.85rem" }}>
+            Loading images…
           </div>
-          {urls.length > 1 && (
-            <div className="accident-images__thumbs">
-              {urls.map((img, i) => (
-                <button
-                  key={img.url}
-                  type="button"
-                  className={i === activeIndex ? "active" : ""}
-                  onClick={() => setActiveIndex(i)}
+        ) : (
+          <>
+            {/* Left: per-photo location info */}
+            <div className="accident-images__loc">
+              <p className="ai-loc__label">Photo Location</p>
+              {active && active.gps_lat != null && active.gps_lng != null ? (
+                <a
+                  href={`https://www.google.com/maps?q=${active.gps_lat},${active.gps_lng}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="ai-loc__coords-btn"
                 >
-                  {isVideo(img.url) ? (
-                    <span style={{ display: "flex", alignItems: "center", justifyContent: "center", width: "100%", height: "100%", fontSize: "1.5rem" }}>▶</span>
-                  ) : (
-                    <img src={img.url} alt="" />
-                  )}
-                </button>
-              ))}
+                  {formatCoords(active)}
+                </a>
+              ) : (
+                <p className="ai-loc__address">{active ? formatCoords(active) : "—"}</p>
+              )}
+              <div className="ai-loc__divider" />
+              <p className="ai-loc__label">Photo Timestamp</p>
+              <p className="ai-loc__value">{active ? formatCapturedAt(active.captured_at) : "—"}</p>
             </div>
-          )}
-        </div>
+
+            {/* Right: original media viewer */}
+            <div className="accident-images__media">
+              <div className="accident-images__main">
+                {urls.length > 0 ? (
+                  isVideo(activeUrl) ? (
+                    <video key={activeUrl} src={activeUrl} controls style={{ maxWidth: "100%", maxHeight: "100%" }} />
+                  ) : (
+                    <img src={activeUrl} alt={`${title} — item ${activeIndex + 1}`} />
+                  )
+                ) : (
+                  <p style={{ color: "var(--color-text-placeholder)", fontSize: "0.85rem" }}>No media available</p>
+                )}
+              </div>
+              {urls.length > 1 && (
+                <div className="accident-images__thumbs">
+                  {urls.map((img, i) => (
+                    <button
+                      key={img.url}
+                      type="button"
+                      className={i === activeIndex ? "active" : ""}
+                      onClick={() => setActiveIndex(i)}
+                    >
+                      {isVideo(img.url) ? (
+                        <span style={{ display: "flex", alignItems: "center", justifyContent: "center", width: "100%", height: "100%", fontSize: "1.5rem" }}>▶</span>
+                      ) : (
+                        <img src={img.url} alt="" />
+                      )}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          </>
+        )}
       </div>
     </div>
   );

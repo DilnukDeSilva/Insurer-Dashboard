@@ -23,6 +23,7 @@ def list_stages() -> list[PipelineStage]:
 @router.post("/jobs", response_model=PipelineJobResponse)
 def create_job(body: PipelineJobCreateRequest) -> PipelineJobResponse:
     return pipeline_service.create_job(
+        folder=body.folder or f"{body.customer_name} - {body.nic}",
         customer_name=body.customer_name,
         nic=body.nic,
     )
@@ -59,18 +60,21 @@ def job_status(job_id: str) -> JobStatusResponse:
 
 
 @router.get("/jobs/{job_id}/splat")
-def get_splat(job_id: str) -> FileResponse:
-    """Serve the Gaussian Splat PLY file, fetching from R2 if not cached locally."""
-    ply_path = settings.jobs_dir / job_id / "gs" / "splat" / "splat.ply"
-    if not ply_path.exists():
-        try:
-            pipeline_service.r2.download_file(f"jobs/{job_id}/splat.ply", ply_path)
-        except Exception:
-            raise HTTPException(status_code=404, detail="Splat model not ready yet")
-    return FileResponse(
-        path=str(ply_path),
+def get_splat(job_id: str):
+    """Stream PLY from R2 to the browser without buffering to disk."""
+    from fastapi.responses import StreamingResponse
+    r2 = pipeline_service.r2
+    if not r2.is_configured:
+        raise HTTPException(status_code=503, detail="R2 not configured")
+    try:
+        obj = r2.client.get_object(Bucket=r2.bucket, Key=f"jobs/{job_id}/splat.ply")
+    except Exception:
+        raise HTTPException(status_code=404, detail="Splat model not ready yet")
+    headers = {"Content-Length": str(obj["ContentLength"])} if obj.get("ContentLength") else {}
+    return StreamingResponse(
+        obj["Body"].iter_chunks(chunk_size=65536),
         media_type="application/octet-stream",
-        filename="splat.ply",
+        headers=headers,
     )
 
 
