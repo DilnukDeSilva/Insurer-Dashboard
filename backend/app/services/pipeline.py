@@ -117,7 +117,7 @@ class PipelineService:
 
             print(f"[pipeline] Modal function found, spawning...")
             # Spawn the GPU function (returns immediately)
-            call = fn.spawn(
+            call = await fn.spawn.aio(
                 job_id=job_id,
                 r2_endpoint=settings.r2_endpoint_url,
                 r2_key_id=settings.r2_access_key_id,

@@ -56,6 +56,7 @@ nerfstudio_image = (
         "pip install piq",
         # plyfile: read/write Gaussian Splat PLY files for post-processing
         "pip install plyfile",
+        "pip install tensorboard",
     )
 )
 
@@ -122,12 +123,13 @@ def run_pipeline(
                 f"STDERR: {result.stderr[-3000:]}"
             )
         print(f"[pipeline] ✓ {name} — {elapsed:.1f}s")
-        if log_output and result.stdout.strip():
-            lines = result.stdout.strip().splitlines()
+        combined = result.stdout + "\n" + result.stderr
+        if log_output and combined.strip():
+            lines = combined.strip().splitlines()
             # Print last 80 lines so Modal logs stay readable
             for line in lines[-80:]:
                 print(f"  {line}")
-        return result.stdout
+        return result.stdout + "\n" + result.stderr
 
     def _brisque(path) -> float | None:
         """Return BRISQUE score for an image (lower = better quality, 0–100)."""
@@ -172,10 +174,11 @@ def run_pipeline(
         else:
             print(f"[pipeline] COLMAP matches: could not parse match counts from output")
 
-    def _parse_nerfstudio_metrics(stdout: str) -> None:
-        """Extract PSNR, SSIM, and Gaussian count from nerfstudio training output."""
+    def _parse_nerfstudio_metrics(stdout: str) -> dict:
+        """Extract PSNR, SSIM, Gaussian count from nerfstudio training output."""
         import re
-        # Gaussian count — nerfstudio logs lines like "num_gauss: 1234567"
+
+        # Gaussian count
         gaussians = None
         for line in stdout.splitlines():
             m = re.search(r"num_gauss[ians]*[:\s]+([0-9,]+)", line, re.IGNORECASE)
@@ -184,24 +187,39 @@ def run_pipeline(
         if gaussians:
             print(f"[pipeline] Number of Gaussians: {int(gaussians):,}")
 
-        # PSNR / SSIM — logged at eval steps and final eval
-        psnr_vals, ssim_vals = [], []
+        psnr_vals, ssim_vals, lpips_vals = [], [], []
         for line in stdout.splitlines():
-            m = re.search(r"psnr[:\s=]+([0-9.]+)", line, re.IGNORECASE)
-            if m:
-                psnr_vals.append(float(m.group(1)))
-            m = re.search(r"ssim[:\s=]+([0-9.]+)", line, re.IGNORECASE)
-            if m:
-                ssim_vals.append(float(m.group(1)))
+            p = re.search(r"(?:^|[\s,])psnr[:\s=]+([0-9]+\.?[0-9]*)", line, re.IGNORECASE)
+            if p:
+                val = float(p.group(1))
+                if 0 < val < 60:
+                    psnr_vals.append(val)
+            s = re.search(r"(?:^|[\s,])ssim[:\s=]+([0-9]+\.?[0-9]*)", line, re.IGNORECASE)
+            if s:
+                val = float(s.group(1))
+                if 0 < val <= 1:
+                    ssim_vals.append(val)
+            lp = re.search(r"(?:^|[\s,])lpips[:\s=]+([0-9]+\.?[0-9]*)", line, re.IGNORECASE)
+            if lp:
+                val = float(lp.group(1))
+                if 0 < val < 10:
+                    lpips_vals.append(val)
 
+        results = {}
         if psnr_vals:
+            results["psnr"] = psnr_vals[-1]
             print(f"[pipeline] nerfstudio PSNR — final: {psnr_vals[-1]:.2f} dB  "
-                  f"(best: {max(psnr_vals):.2f} dB over {len(psnr_vals)} evals)")
+                  f"best: {max(psnr_vals):.2f} dB over {len(psnr_vals)} evals")
         if ssim_vals:
+            results["ssim"] = ssim_vals[-1]
             print(f"[pipeline] nerfstudio SSIM — final: {ssim_vals[-1]:.4f}  "
-                  f"(best: {max(ssim_vals):.4f})")
+                  f"best: {max(ssim_vals):.4f}")
+        if lpips_vals:
+            results["lpips"] = lpips_vals[-1]
+            print(f"[pipeline] nerfstudio LPIPS — final: {lpips_vals[-1]:.4f}")
         if not psnr_vals and not ssim_vals:
-            print("[pipeline] nerfstudio: no PSNR/SSIM found in output — check raw logs above")
+            print("[pipeline] nerfstudio: no PSNR/SSIM found in output")
+        return results
 
     _pipeline_start = time.time()
 
@@ -467,7 +485,58 @@ def run_pipeline(
                 _apply_gamma(image_files, _gamma_lut(overall_mean, TARGET))
 
             else:
-                print("[pipeline] Images well-lit — skipping enhancement")
+                print("[pipeline] Images well-lit — skipping bulk enhancement")
+
+            # ── Per-image normalization (mixed-lighting fix) ───────────────
+            #
+            # Runs after bulk enhancement on every path that continues to 3D.
+            # A single claim submission can contain photos with very different
+            # lighting (e.g. one side of the car in shadow, other in sunlight).
+            # COLMAP needs consistent feature visibility across all images —
+            # dark outliers reduce match count and create holes in the model.
+            #
+            # Strategy: use the 75th-percentile image brightness as the
+            # reference. Any image more than 20% below that reference gets
+            # gamma-corrected individually up to the reference level.
+            # Images already at or above the reference are never touched.
+            if image_files:
+                file_means = [
+                    (p, ImageStat.Stat(Image.open(p).convert("L")).mean[0])
+                    for p in image_files
+                ]
+                sorted_means = sorted(m for _, m in file_means)
+                p75 = sorted_means[int(len(sorted_means) * 0.75)]
+                threshold = p75 * 0.80   # correct if >20% below the reference
+
+                corrections = []
+                for p, img_mean in file_means:
+                    if img_mean < threshold:
+                        lut = _gamma_lut(img_mean, p75)
+                        img = Image.open(p).convert("RGB")
+                        img = img.point(lut * 3)
+                        kw = {"quality": 95} if p.suffix.lower() in (".jpg", ".jpeg") else {}
+                        img.save(p, **kw)
+                        corrections.append((p.name, img_mean))
+
+                if corrections:
+                    print(f"[pipeline] Mixed-lighting correction: "
+                          f"{len(corrections)}/{len(image_files)} dark images normalised "
+                          f"(reference p75={p75:.1f})")
+                    for name, old_mean in corrections:
+                        print(f"[pipeline]   {name}: {old_mean:.1f} → ~{p75:.1f}")
+
+                    # Upload all (corrected + unchanged) images to enhanced/ in R2
+                    # so the insurer can view them via "View Enhanced Photos" button.
+                    # Only uploaded when corrections were actually made.
+                    for p in image_files:
+                        s3.upload_file(
+                            str(p), r2_bucket,
+                            f"jobs/{job_id}/enhanced/{p.name}",
+                        )
+                    print(f"[pipeline] Uploaded {len(image_files)} normalised images to R2 enhanced/")
+                else:
+                    print(f"[pipeline] Mixed-lighting check: all images within range "
+                          f"(p75={p75:.1f}, threshold={threshold:.1f})")
 
         steps[1].update({"status": "done", "completed_at": now()})
         steps[2].update({"status": "running", "started_at": now()})
@@ -548,12 +617,36 @@ def run_pipeline(
                 "--viewer.quit-on-train-completion", "True",
                 # Scale regularization prevents large blurry Gaussians → sharper model
                 "--pipeline.model.use-scale-regularization", "True",
+                "--pipeline.model.eval-num-rays-per-chunk", "1024",
                 "nerfstudio-data",
             ],
             label="ns-train splatfacto (CUDA)",
             log_output=True,
         )
         _parse_nerfstudio_metrics(train_out)
+
+        # ── TensorBoard metrics (PSNR / SSIM) ──────────────────────────────
+        try:
+            from tensorboard.backend.event_processing.event_accumulator import EventAccumulator
+            tb_dir = train_dir / "splat" / "splatfacto"
+            tb_dirs = sorted(tb_dir.glob("*/"))
+            if tb_dirs:
+                ea = EventAccumulator(str(tb_dirs[-1]))
+                ea.Reload()
+                tags = ea.Tags().get("scalars", [])
+                print(f"[pipeline] TensorBoard tags: {tags}")
+                psnr_tag = next((t for t in tags if "psnr" in t.lower()), None)
+                ssim_tag = next((t for t in tags if "ssim" in t.lower()), None)
+                if psnr_tag:
+                    print(f"[pipeline] TensorBoard PSNR: {ea.Scalars(psnr_tag)[-1].value:.2f} dB")
+                if ssim_tag:
+                    print(f"[pipeline] TensorBoard SSIM: {ea.Scalars(ssim_tag)[-1].value:.4f}")
+                if not psnr_tag and not ssim_tag:
+                    print("[pipeline] TensorBoard: no PSNR/SSIM tags found")
+            else:
+                print("[pipeline] TensorBoard: no event directory found")
+        except Exception as _tb_err:
+            print(f"[pipeline] TensorBoard read failed ({_tb_err})")
 
         steps[3].update({"status": "done", "completed_at": now()})
         steps[4].update({"status": "running", "started_at": now()})
@@ -565,6 +658,31 @@ def run_pipeline(
         )
         if not config_files:
             raise FileNotFoundError(f"ns-train produced no config.yml in {train_dir}")
+
+        # ── Checkpoint-based PSNR / SSIM logging ───────────────────────────
+        try:
+            import torch as _torch
+            import numpy as _np
+            import json as _json
+
+            _torch.serialization.add_safe_globals([_np.core.multiarray.scalar])
+
+            _ckpt_dir = Path(config_files[-1]).parent / "nerfstudio_models"
+            _ckpts = sorted(_ckpt_dir.glob("*.ckpt"), key=lambda p: p.stat().st_mtime)
+            if _ckpts:
+                _state = _torch.load(str(_ckpts[-1]), map_location="cpu", weights_only=False)
+                _met = _state.get("metrics", {})
+                _psnr = _met.get("psnr")
+                _ssim = _met.get("ssim")
+                if _psnr is not None and _ssim is not None:
+                    print(f"[pipeline] PSNR: {_psnr:.2f} dB")
+                    print(f"[pipeline] SSIM: {_ssim:.4f}")
+                else:
+                    print("[pipeline] eval: metrics not stored in checkpoint")
+            else:
+                print("[pipeline] eval: no checkpoints found")
+        except Exception as _eval_err:
+            print(f"[pipeline] eval skipped ({_eval_err})")
 
         export_dir = Path("/tmp/pipeline/export")
         export_dir.mkdir(parents=True, exist_ok=True)
