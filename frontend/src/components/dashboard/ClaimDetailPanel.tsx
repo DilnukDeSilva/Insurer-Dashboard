@@ -127,15 +127,16 @@ export function ClaimDetailPanel({
   // Whether the background context job belongs to this specific claim folder
   const isActiveJobHere = activeJob?.folder === claim.folder;
 
-  // Derived values — context wins when there's an active job for this claim
+  // Derived values — context wins only while a job is actively generating
   const modelState: ModelState = startError
     ? "error"
-    : isActiveJobHere
-      ? activeJob!.state
+    : (isActiveJobHere && activeJob!.state === "generating")
+      ? "generating"
       : localSplatUrl ? "ready" : "idle";
 
-  const splatUrl = (isActiveJobHere && activeJob!.splatUrl) ? activeJob!.splatUrl : localSplatUrl;
-  const enhancedJobId = (isActiveJobHere && activeJob!.enhancedJobId) ? activeJob!.enhancedJobId : localEnhancedJobId;
+  const jobStillRunning = isActiveJobHere && activeJob!.state === "generating";
+  const splatUrl = (jobStillRunning && activeJob!.splatUrl) ? activeJob!.splatUrl : localSplatUrl;
+  const enhancedJobId = (jobStillRunning && activeJob!.enhancedJobId) ? activeJob!.enhancedJobId : localEnhancedJobId;
 
   useEffect(() => {
     setApproved(false);
@@ -289,7 +290,7 @@ export function ClaimDetailPanel({
                 onClick={() => { void ensurePhotosLoaded(); setShowUserVerification(true); }}
               >
                 <span>User Verification Test</span>
-                <span className="action-view__arrow">View &gt;</span>
+                <span className="action-view__arrow"><svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M5 3l4 4-4 4" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"/></svg></span>
               </button>
             ) : (
               <button type="button" className="action-view action-view--disabled" disabled>
@@ -304,7 +305,7 @@ export function ClaimDetailPanel({
               onClick={() => { void ensurePhotosLoaded(); setShowImages(true); }}
             >
               <span>Accident Images</span>
-              <span className="action-view__arrow">View &gt;</span>
+              <span className="action-view__arrow"><svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M5 3l4 4-4 4" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"/></svg></span>
             </button>
 
             {claim.thirdPartyApplicable ? (
@@ -314,7 +315,7 @@ export function ClaimDetailPanel({
                 onClick={() => { void ensurePhotosLoaded(); setShowThirdParty(true); }}
               >
                 <span>3rd Party Details</span>
-                <span className="action-view__arrow">View &gt;</span>
+                <span className="action-view__arrow"><svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M5 3l4 4-4 4" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"/></svg></span>
               </button>
             ) : (
               <button type="button" className="action-view action-view--disabled" disabled>
@@ -329,7 +330,7 @@ export function ClaimDetailPanel({
               onClick={() => setShowLocation(true)}
             >
               <span>Location Details</span>
-              <span className="action-view__arrow">View &gt;</span>
+              <span className="action-view__arrow"><svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M5 3l4 4-4 4" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"/></svg></span>
             </button>
           </div>
 
