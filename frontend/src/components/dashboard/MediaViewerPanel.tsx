@@ -1,5 +1,8 @@
 import { useEffect, useState } from "react";
 import type { AccidentImage, Claim } from "../../types/claim";
+import { distanceMetres, formatDistance, distanceLevel } from "../../utils/geo";
+
+type ReferenceLocation = { gps_lat: number | null; gps_lng: number | null };
 
 type MediaViewerPanelProps = {
   title: string;
@@ -8,6 +11,7 @@ type MediaViewerPanelProps = {
   visible: boolean;
   onClose: () => void;
   claim: Claim;
+  referenceLocation?: ReferenceLocation | null;
 };
 
 function isVideo(url: string): boolean {
@@ -39,7 +43,7 @@ function formatCoords(img: AccidentImage): string {
   return "—";
 }
 
-export function MediaViewerPanel({ title, urls, loading, visible, onClose }: MediaViewerPanelProps) {
+export function MediaViewerPanel({ title, urls, loading, visible, onClose, referenceLocation }: MediaViewerPanelProps) {
   const [activeIndex, setActiveIndex] = useState(0);
 
   useEffect(() => { setActiveIndex(0); }, [urls]);
@@ -78,6 +82,20 @@ export function MediaViewerPanel({ title, urls, loading, visible, onClose }: Med
               ) : (
                 <p className="ai-loc__address">{active ? formatCoords(active) : "—"}</p>
               )}
+              {(() => {
+                if (!active || active.gps_lat == null || active.gps_lng == null) return null;
+                const ref = referenceLocation;
+                if (!ref || ref.gps_lat == null || ref.gps_lng == null) return null;
+                const dist = distanceMetres(ref.gps_lat, ref.gps_lng, active.gps_lat, active.gps_lng);
+                const level = distanceLevel(dist);
+                const icon = level === "ok" ? "✓" : "⚠";
+                const label = level === "ok" ? "Location Matched" : `${formatDistance(dist)} from accident site`;
+                return (
+                  <span className={`ai-loc__dist ai-loc__dist--${level}`}>
+                    {icon} {label}
+                  </span>
+                );
+              })()}
               <div className="ai-loc__divider" />
               <p className="ai-loc__label">Photo Timestamp</p>
               <p className="ai-loc__value">{active ? formatCapturedAt(active.captured_at) : "—"}</p>

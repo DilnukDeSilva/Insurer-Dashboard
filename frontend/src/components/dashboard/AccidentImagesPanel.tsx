@@ -1,5 +1,8 @@
 import { useEffect, useState } from "react";
 import type { AccidentImage } from "../../types/claim";
+import { distanceMetres, formatDistance, distanceLevel } from "../../utils/geo";
+
+type ReferenceLocation = { gps_lat: number | null; gps_lng: number | null };
 
 type AccidentImagesPanelProps = {
   nic: string;
@@ -7,6 +10,7 @@ type AccidentImagesPanelProps = {
   loading?: boolean;
   visible: boolean;
   onClose: () => void;
+  referenceLocation?: ReferenceLocation | null;
 };
 
 function formatCapturedAt(iso: string | null | undefined): string {
@@ -33,7 +37,7 @@ function formatCoords(img: AccidentImage): string {
   return "—";
 }
 
-export function AccidentImagesPanel({ nic, images, loading, visible, onClose }: AccidentImagesPanelProps) {
+export function AccidentImagesPanel({ nic, images, loading, visible, onClose, referenceLocation }: AccidentImagesPanelProps) {
   const [activeIndex, setActiveIndex] = useState(0);
 
   useEffect(() => { setActiveIndex(0); }, [images]);
@@ -71,6 +75,20 @@ export function AccidentImagesPanel({ nic, images, loading, visible, onClose }: 
               ) : (
                 <p className="ai-loc__address">{active ? formatCoords(active) : "—"}</p>
               )}
+              {(() => {
+                if (!active || active.gps_lat == null || active.gps_lng == null) return null;
+                const ref = referenceLocation;
+                if (!ref || ref.gps_lat == null || ref.gps_lng == null) return null;
+                const dist = distanceMetres(ref.gps_lat, ref.gps_lng, active.gps_lat, active.gps_lng);
+                const level = distanceLevel(dist);
+                const icon = level === "ok" ? "✓" : "⚠";
+                const label = level === "ok" ? "Location Matched" : `${formatDistance(dist)} from accident site`;
+                return (
+                  <span className={`ai-loc__dist ai-loc__dist--${level}`}>
+                    {icon} {label}
+                  </span>
+                );
+              })()}
               <div className="ai-loc__divider" />
               <p className="ai-loc__label">Photo Timestamp</p>
               <p className="ai-loc__value">
