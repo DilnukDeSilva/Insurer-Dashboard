@@ -418,6 +418,7 @@ export function ClaimDetailPanel({
         loading={photosLoading}
         visible={showImages}
         onClose={() => setShowImages(false)}
+        referenceLocation={claim.locations?.insurer_call ?? null}
       />
       <MediaViewerPanel
         title="User Verification Test"
@@ -426,6 +427,7 @@ export function ClaimDetailPanel({
         visible={showUserVerification}
         onClose={() => setShowUserVerification(false)}
         claim={claim}
+        referenceLocation={claim.locations?.insurer_call ?? null}
       />
       <MediaViewerPanel
         title="3rd Party Details"
@@ -434,6 +436,7 @@ export function ClaimDetailPanel({
         visible={showThirdParty}
         onClose={() => setShowThirdParty(false)}
         claim={claim}
+        referenceLocation={claim.locations?.insurer_call ?? null}
       />
 
       {/* ── Model picker overlay ──────────────────────────── */}

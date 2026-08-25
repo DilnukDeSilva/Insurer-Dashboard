@@ -980,6 +980,32 @@
   color: var(--color-brand);
 }
 
+.ai-loc__dist {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.22rem 0.6rem;
+  border-radius: var(--radius-sm);
+  font-size: 0.78rem;
+  font-weight: 600;
+  align-self: flex-start;
+}
+
+.ai-loc__dist--ok {
+  background: #dcfce7;
+  color: #15803d;
+}
+
+.ai-loc__dist--warn {
+  background: #fef3c7;
+  color: #b45309;
+}
+
+.ai-loc__dist--danger {
+  background: #fee2e2;
+  color: #b91c1c;
+}
+
 .location-row__coords-link {
   display: inline-flex;
   align-items: center;
