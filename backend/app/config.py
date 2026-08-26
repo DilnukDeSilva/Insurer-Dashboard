@@ -33,6 +33,12 @@ class Settings(BaseSettings):
     supabase_url: str = ""
     supabase_key: str = ""
 
+    cors_origins: str = "http://localhost:5173"
+
+    @property
+    def allowed_origins(self) -> list[str]:
+        return [o.strip() for o in self.cors_origins.split(",") if o.strip()]
+
     @property
     def uploads_dir(self) -> Path:
         return self.data_dir / "uploads"

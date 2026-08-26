@@ -3,7 +3,7 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from jose import JWTError
 
 from app.db.mongo import get_db
-from app.services.auth import decode_access_token
+from app.services.auth import decode_access_token, verify_supabase_token
 
 bearer = HTTPBearer()
 
@@ -11,14 +11,22 @@ bearer = HTTPBearer()
 async def get_current_user(
     credentials: HTTPAuthorizationCredentials = Depends(bearer),
 ) -> dict:
-    try:
-        payload = decode_access_token(credentials.credentials)
-    except JWTError:
-        raise HTTPException(status_code=401, detail="Invalid or expired token")
+    token = credentials.credentials
+    email: str | None = None
 
-    email = payload.get("sub")
+    # Try internal JWT first.
+    try:
+        payload = decode_access_token(token)
+        email = payload.get("sub")
+    except JWTError:
+        pass
+
+    # Fall back to Supabase session token (used by kaduna-web SSO).
     if not email:
-        raise HTTPException(status_code=401, detail="Invalid token")
+        email = await verify_supabase_token(token)
+
+    if not email:
+        raise HTTPException(status_code=401, detail="Invalid or expired token")
 
     db = get_db()
     user = await db["users"].find_one({"email": email, "is_active": True})
