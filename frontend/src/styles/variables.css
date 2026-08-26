@@ -29,5 +29,6 @@
   --radius-lg: 12px;
   --radius-pill: 999px;
 
-  --font-family: "Roboto", system-ui, -apple-system, sans-serif;
+  --font-family: "Geist", system-ui, -apple-system, sans-serif;
+  --font-family-display: "Bricolage Grotesque", "Geist", system-ui, sans-serif;
 }
