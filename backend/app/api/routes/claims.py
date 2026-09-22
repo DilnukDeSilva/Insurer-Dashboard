@@ -18,6 +18,7 @@ from app.config import Settings, settings
 from app.services.auth import create_claim_link_token, decode_claim_link_token
 from app.services.captures_lookup import get_insurance_expire_month
 from app.services.claims_privacy_status import mark_capture_approved
+from app.services.supabase_service import sb_get
 
 router = APIRouter(prefix="/claims", tags=["claims"])
 
@@ -233,6 +234,61 @@ def verify_claim_link(token: str) -> Dict[str, Any]:
     except (JWTError, ValueError):
         raise HTTPException(status_code=404, detail="This link is invalid or has expired.")
     return {"nic": payload["nic"], "plateNumber": payload["plateNumber"]}
+
+
+_PLATE_QUERY_UNSAFE_CHARS = re.compile(r"[^A-Za-z0-9\- ]")
+
+
+class VehicleSearchResult(BaseModel):
+    plate_number: str
+    vehicle_model: Optional[str] = None
+    nic: Optional[str] = None
+    phone: Optional[str] = None
+
+
+@router.get("/vehicle-search")
+async def search_vehicles(q: str, _: dict = Depends(get_current_user)) -> List[VehicleSearchResult]:
+    """Insurer-side typeahead for the claim-link form's Vehicle Reg No field —
+    looks up vehicles across ALL drivers (not just the insurer's own data,
+    which an insurer session has none of) via the service-role key, same
+    bypass-RLS pattern as the verify-claimant edge function. `q` is stripped
+    to plate-number-safe characters before being used in an ilike pattern, so
+    there's no LIKE-wildcard-injection path from arbitrary user input."""
+    sanitized = _PLATE_QUERY_UNSAFE_CHARS.sub("", q).strip().upper()
+    if len(sanitized) < 2:
+        return []
+
+    vehicles = await sb_get(
+        "vehicles",
+        {
+            "plate_number": f"ilike.*{sanitized}*",
+            "select": "user_id,model,plate_number",
+            "order": "plate_number.asc",
+            "limit": "8",
+        },
+    )
+    if not vehicles:
+        return []
+
+    user_ids = {v["user_id"] for v in vehicles}
+    profiles = await sb_get(
+        "profiles",
+        {
+            "id": f"in.({','.join(user_ids)})",
+            "select": "id,nic_number,phone",
+        },
+    )
+    profile_by_id = {p["id"]: p for p in profiles}
+
+    return [
+        VehicleSearchResult(
+            plate_number=v["plate_number"],
+            vehicle_model=v.get("model"),
+            nic=profile_by_id.get(v["user_id"], {}).get("nic_number"),
+            phone=profile_by_id.get(v["user_id"], {}).get("phone"),
+        )
+        for v in vehicles
+    ]
 
 
 @router.get("/{folder_name}/enhanced-jobs")
