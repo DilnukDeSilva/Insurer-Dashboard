@@ -37,7 +37,14 @@ class Settings(BaseSettings):
 
     # Base URL of the public claimant-facing web app (kaduna-web) — used only
     # to build the shareable link returned by POST /claims/claim-links.
-    claimant_web_base_url: str = "http://localhost:3000"
+    # Defaults to the real production domain rather than localhost: this
+    # value wasn't reliably taking effect via the platform's env var UI in
+    # production, so the safe default is "correct in prod even if the env
+    # var is never set", not "correct locally, wrong everywhere else". Local
+    # dev that needs a different value should still set
+    # CLAIMANT_WEB_BASE_URL explicitly in backend/.env, same as every other
+    # environment-specific setting here.
+    claimant_web_base_url: str = "https://kaduna.lk"
 
     @property
     def allowed_origins(self) -> list[str]:
