@@ -527,7 +527,7 @@ def run_pipeline(
 
                     # Upload all (corrected + unchanged) images to enhanced/ in R2
                     # so the insurer can view them via "View Enhanced Photos" button.
-                    # Only uploaded when corrections were actually made.
+                    # Only uploaded whenn corrections were actually madee.
                     for p in image_files:
                         s3.upload_file(
                             str(p), r2_bucket,
@@ -542,6 +542,121 @@ def run_pipeline(
         steps[2].update({"status": "running", "started_at": now()})
         put_status(steps, "running")
 
+        # ── Gappp detection (runs for every job, cheap) ───────────────────────
+        #
+        # Bhattacharyya coefficient on 32×32 grayscale histograms — measures
+        # visual overlap between consecutive photos (sorted by filename = capture order).
+        # Fast: ~1 ms/pair, no GPU needed.
+        #
+        # Result determines which COLMAP mode runs:
+        #   No gaps (all sims ≥ 0.85) → normal mode, COLMAP uses images_dir directly
+        #   Gaps detected             → gap mode:  bridge frames added, looser mapper
+
+        import shutil as _shutil
+
+        def _bhattacharyya(p1: Path, p2: Path) -> float:
+            _a1 = _np.array(Image.open(p1).convert("L").resize((32, 32)),
+                            dtype=_np.float32).flatten()
+            _a2 = _np.array(Image.open(p2).convert("L").resize((32, 32)),
+                            dtype=_np.float32).flatten()
+            _h1 = _np.histogram(_a1, bins=32, range=(0, 255))[0].astype(_np.float32) + 1e-8
+            _h2 = _np.histogram(_a2, bins=32, range=(0, 255))[0].astype(_np.float32) + 1e-8
+            _h1 /= _h1.sum(); _h2 /= _h2.sum()
+            return float(_np.sqrt(_h1 * _h2).sum())
+
+        _sorted_imgs = sorted(image_files, key=lambda _p: _p.name)
+        _n_imgs = len(_sorted_imgs)
+        # Consecutive pairs only — no wrap-around (sequence may not be a closed ring)
+        _sims = [
+            (_sorted_imgs[_i], _sorted_imgs[_i + 1],
+             _bhattacharyya(_sorted_imgs[_i], _sorted_imgs[_i + 1]))
+            for _i in range(_n_imgs - 1)
+        ]
+
+        _GAP_MODERATE = 0.85   # below this → noticeable gap
+        _GAP_LARGE    = 0.72   # below this → very large gap (more bridges)
+        _gap_pairs = [(_p1, _p2, _s) for _p1, _p2, _s in _sims if _s < _GAP_MODERATE]
+        _gap_mode  = len(_gap_pairs) > 0
+        _min_sim   = min(_s for *_, _s in _sims) if _sims else 1.0
+
+        if _gap_mode:
+            # ── GAP MODE ─────────────────────────────────────────────────────
+            # Build bridge frames in colmap_working_dir so COLMAP can chain
+            # cameras across the gap.  nerfstudio sees only images_dir (originals).
+            #
+            # Bridge counts per gap:
+            #   moderate (0.72–0.85) → 1 bridge at midpoint
+            #   large    (<0.72)     → 3 bridges at 25%, 50%, 75%
+
+            print(f"[pipeline] GAP MODE: {len(_gap_pairs)} gap(s) detected "
+                  f"(min similarity={_min_sim:.2f}) — building bridge frames")
+
+            colmap_working_dir = Path("/tmp/pipeline/colmap_images")
+            colmap_working_dir.mkdir(parents=True, exist_ok=True)
+            for _gf in image_files:
+                _shutil.copy2(str(_gf), str(colmap_working_dir / _gf.name))
+
+            _n_bridges = 0
+            for _p1, _p2, _sim in _gap_pairs:
+                _label = "LARGE" if _sim < _GAP_LARGE else "moderate"
+                print(f"[pipeline]   {_p1.name} → {_p2.name}  sim={_sim:.2f} [{_label}]")
+                _gi1 = Image.open(_p1).convert("RGB")
+                _gi2 = Image.open(_p2).convert("RGB")
+                _tag = f"{_p1.stem[:10]}_{_p2.stem[:10]}"
+
+                if _sim < _GAP_LARGE:
+                    for _alpha, _sfx in [(0.25, "a"), (0.5, "b"), (0.75, "c")]:
+                        Image.blend(_gi1, _gi2, _alpha).save(
+                            colmap_working_dir / f"_br_{_tag}_{_sfx}.jpg", quality=88)
+                    _n_bridges += 3
+                else:
+                    Image.blend(_gi1, _gi2, 0.5).save(
+                        colmap_working_dir / f"_br_{_tag}.jpg", quality=88)
+                    _n_bridges += 1
+
+            print(f"[pipeline] {_n_bridges} bridge frame(s) added "
+                  f"(COLMAP only — not used by nerfstudio)")
+            _colmap_src = colmap_working_dir
+
+        else:
+            # ── NORMAL MODE ───────────────────────────────────────────────────
+            # No gaps — COLMAP runs directly on images_dir, no copy overhead.
+            print(f"[pipeline] Gap check: good coverage "
+                  f"(min similarity={_min_sim:.2f}) — normal COLMAP")
+            _colmap_src = images_dir
+
+        # ── Specular suppression for COLMAP ─────────────────────────────────
+        #
+        # Metallic car paint and glass produce specular highlights that shift
+        # between frames — the same point on the car looks completely different
+        # from different angles.  COLMAP's SIFT matcher then sees "different"
+        # surfaces and either rejects the match or produces wrong correspondences.
+        #
+        # Fix: apply per-channel Reinhard tone-mapping  (L_out = L / (1 + L))
+        # to every image before COLMAP sees them.  Reinhard compresses bright
+        # highlights toward 0.5 while leaving mid-tones largely intact, which
+        # dramatically reduces the inter-frame photometric variation on specular
+        # regions without destroying the geometric texture that SIFT relies on.
+        #
+        # nerfstudio trains on images_dir (originals) so the final PLY has
+        # correct colour — this only affects camera registration.
+
+        def _reinhard(src: Path, dst: Path) -> None:
+            import numpy as _npR
+            _arr = _npR.array(Image.open(src).convert("RGB"), dtype=_npR.float32) / 255.0
+            _arr = _arr / (1.0 + _arr)
+            Image.fromarray(
+                _npR.clip(_arr * 255, 0, 255).astype(_npR.uint8)
+            ).save(dst, quality=92)
+
+        colmap_specular_dir = Path("/tmp/pipeline/colmap_specular")
+        colmap_specular_dir.mkdir(parents=True, exist_ok=True)
+        for _sf in sorted(_colmap_src.iterdir()):
+            if _sf.suffix.lower() in {".jpg", ".jpeg", ".png"}:
+                _reinhard(_sf, colmap_specular_dir / _sf.name)
+        _colmap_src = colmap_specular_dir
+        print(f"[pipeline] Specular suppression applied — COLMAP will use tone-mapped images")
+
         # ── 3. COLMAP + transforms.json ─────────────────────────────────────
         processed_dir = Path("/tmp/pipeline/processed")
         colmap_db     = processed_dir / "colmap" / "database.db"
@@ -549,35 +664,58 @@ def run_pipeline(
         colmap_db.parent.mkdir(parents=True, exist_ok=True)
         colmap_sparse.mkdir(parents=True, exist_ok=True)
 
-        # 2a. Feature extraction — CPU SIFT (GPU SIFT needs OpenGL which is
-        #     unavailable in Modal's headless containers)
         run(["colmap", "feature_extractor",
              "--database_path", str(colmap_db),
-             "--image_path",    str(images_dir),
-             "--ImageReader.single_camera",  "1",
-             "--ImageReader.camera_model",   "OPENCV",
-             "--SiftExtraction.use_gpu",     "0",
+             "--image_path",    str(_colmap_src),
+             "--ImageReader.single_camera",       "1",
+             "--ImageReader.camera_model",        "OPENCV",
+             "--SiftExtraction.use_gpu",          "0",
+             "--SiftExtraction.max_image_size",   "4096",   # prevent silent downscale of 4080px portrait images
+             "--SiftExtraction.max_num_features", "8192",
              ], label="colmap feature_extractor")
 
-        # 2b. Exhaustive matching — CPU mode (same headless OpenGL constraint)
         matcher_out = run(["colmap", "exhaustive_matcher",
              "--database_path",          str(colmap_db),
              "--SiftMatching.use_gpu",   "0",
              ], label="colmap exhaustive_matcher", log_output=True)
         _parse_colmap_matches(matcher_out)
 
-        # 2c. Sparse reconstruction (SfM)
-        run(["colmap", "mapper",
-             "--database_path", str(colmap_db),
-             "--image_path",    str(images_dir),
-             "--output_path",   str(colmap_sparse),
-             ], label="colmap mapper")
+        # Gap mode: loosen mapper thresholds so bridge-connected cameras still register.
+        # Normal mode: keep COLMAP defaults for tightest possible reconstruction.
+        _mapper_cmd = [
+            "colmap", "mapper",
+            "--database_path", str(colmap_db),
+            "--image_path",    str(_colmap_src),
+            "--output_path",   str(colmap_sparse),
+        ]
+        if _gap_mode:
+            _mapper_cmd += [
+                "--Mapper.min_num_matches",    "8",  # bridge frames have fewer matches than real pairs
+                "--Mapper.init_min_tri_angle", "4",  # allow init from small-baseline adjacent cameras
+            ]
+        run(_mapper_cmd, label="colmap mapper")
 
         if not (colmap_sparse / "0").exists():
             raise RuntimeError(
                 "COLMAP mapper produced no reconstruction. "
                 "Not enough overlapping images to register cameras."
             )
+
+        # Log registered camera count — key diagnostic for reconstruction quality
+        try:
+            _analyzer = run(
+                ["colmap", "model_analyzer", "--path", str(colmap_sparse / "0")],
+                label="colmap model_analyzer",
+            )
+            print(f"[pipeline] COLMAP sparse model:\n{_analyzer}")
+        except Exception as _a_err:
+            # Count images.bin as fallback
+            _imgs_bin = colmap_sparse / "0" / "images.bin"
+            if _imgs_bin.exists():
+                import struct
+                with open(_imgs_bin, "rb") as _f:
+                    _n = struct.unpack("<Q", _f.read(8))[0]
+                print(f"[pipeline] COLMAP registered cameras: {_n} / {len(image_files)}")
 
         # 2d. Copy images and generate transforms.json from our COLMAP output
         import shutil as _shutil
@@ -608,15 +746,17 @@ def run_pipeline(
                 "--data", str(processed_dir),
                 "--output-dir", str(train_dir),
                 "--experiment-name", "splat",
-                "--max-num-iterations", "3000",
+                "--max-num-iterations", "5000",
                 "--steps-per-eval-image", "500",
-                "--steps-per-eval-all-images", "3000",
+                "--steps-per-eval-all-images", "5000",
                 "--steps-per-save", "1000",
                 "--machine.device-type", "cuda",
                 "--vis", "tensorboard",
                 "--viewer.quit-on-train-completion", "True",
                 # Scale regularization prevents large blurry Gaussians → sharper model
                 "--pipeline.model.use-scale-regularization", "True",
+                "--pipeline.model.max-gauss-ratio", "5.0",
+                "--pipeline.model.densify-grad-threshold", "0.00015",
                 "--pipeline.model.eval-num-rays-per-chunk", "1024",
                 "nerfstudio-data",
             ],

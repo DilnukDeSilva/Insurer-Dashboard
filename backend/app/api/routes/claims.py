@@ -10,10 +10,12 @@ from typing import Any, Dict, List, Optional
 import boto3
 from botocore.client import Config
 from fastapi import APIRouter, Depends, HTTPException
+from jose import JWTError
 from pydantic import BaseModel
 from app.core.dependencies import get_current_user
 
 from app.config import Settings, settings
+from app.services.auth import create_claim_link_token, decode_claim_link_token
 from app.services.captures_lookup import get_insurance_expire_month
 from app.services.claims_privacy_status import mark_capture_approved
 
@@ -183,6 +185,56 @@ async def approve_claim(body: ApproveClaimRequest, _: dict = Depends(get_current
     return {"approved": True}
 
 
+class CreateClaimLinkRequest(BaseModel):
+    nic: str
+    plate_number: str
+    phone: Optional[str] = None
+
+
+CLAIM_LINK_EXPIRE_HOURS = 48
+
+
+@router.post("/claim-links")
+async def create_claim_link(
+    body: CreateClaimLinkRequest, current_user: dict = Depends(get_current_user)
+) -> Dict[str, Any]:
+    """Mints a shareable, no-app-required link an insurer sends a claimant so
+    they can report an accident from a plain mobile browser. Stateless — the
+    token itself carries everything the claimant page needs, so there's
+    nothing here to store or clean up later."""
+    token = create_claim_link_token(
+        {
+            "nic": body.nic.strip(),
+            "plateNumber": body.plate_number.strip().upper(),
+            "insurerId": current_user["id"],
+            # Not sent anywhere yet (no SMS/WhatsApp integration in v1 — see
+            # the plan) — carried through so it isn't silently dropped, and
+            # is already threaded for whenever that's added.
+            "phone": body.phone.strip() if body.phone else None,
+        },
+        expire_hours=CLAIM_LINK_EXPIRE_HOURS,
+    )
+    return {
+        "token": token,
+        # kaduna-web is a static export (no dynamic path segments at runtime) —
+        # the token is a query param the client page reads itself, not a route param.
+        "url": f"{settings.claimant_web_base_url}/claim?token={token}",
+        "expiresInHours": CLAIM_LINK_EXPIRE_HOURS,
+    }
+
+
+@router.get("/claim-links/{token}")
+def verify_claim_link(token: str) -> Dict[str, Any]:
+    """Public (no auth) — the claimant page calls this itself to recover the
+    NIC/plate to pre-fill, since the token is HS256-signed with a
+    server-only secret the browser can't verify on its own."""
+    try:
+        payload = decode_claim_link_token(token)
+    except (JWTError, ValueError):
+        raise HTTPException(status_code=404, detail="This link is invalid or has expired.")
+    return {"nic": payload["nic"], "plateNumber": payload["plateNumber"]}
+
+
 @router.get("/{folder_name}/enhanced-jobs")
 def list_enhanced_jobs_for_claim(folder_name: str) -> List[Dict[str, Any]]:
     from app.services.r2 import R2Service
@@ -243,16 +295,19 @@ def get_claim_photos(folder_name: str) -> Dict[str, List[Any]]:
         }
 
     def list_with_meta(prefix: str) -> List[Dict[str, Any]]:
-        keys = [
+        keys = sorted(
             obj["Key"] for obj in
             s3.list_objects_v2(Bucket=bucket, Prefix=prefix).get("Contents", [])
             if not obj["Key"].endswith("/")
-        ]
+        )
         if not keys:
             return []
         with ThreadPoolExecutor(max_workers=min(len(keys), 20)) as pool:
-            futures = {pool.submit(_fetch_one, k): k for k in keys}
-            return [f.result() for f in _as_completed(futures) if f.result()]
+            # Submit in sorted key order and collect in that same order so the
+            # frontend sees photos in capture sequence (lexicographic filename order
+            # matches sequential camera naming from phone cameras).
+            futures = [pool.submit(_fetch_one, k) for k in keys]
+            return [f.result() for f in futures if f.result()]
 
     # All three categories fetched in parallel
     with ThreadPoolExecutor(max_workers=3) as pool:
