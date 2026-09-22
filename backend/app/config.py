@@ -35,6 +35,10 @@ class Settings(BaseSettings):
 
     cors_origins: str = "http://localhost:5173"
 
+    # Base URL of the public claimant-facing web app (kaduna-web) — used only
+    # to build the shareable link returned by POST /claims/claim-links.
+    claimant_web_base_url: str = "http://localhost:3000"
+
     @property
     def allowed_origins(self) -> list[str]:
         return [o.strip() for o in self.cors_origins.split(",") if o.strip()]
