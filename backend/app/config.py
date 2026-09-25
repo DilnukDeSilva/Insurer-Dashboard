@@ -46,6 +46,13 @@ class Settings(BaseSettings):
     # environment-specific setting here.
     claimant_web_base_url: str = "https://kaduna.lk"
 
+    # Notify.lk (Sri Lanka SMS gateway) — used to text the claim link straight
+    # to the claimant's phone. Left blank by default; sending is disabled
+    # (returns a clear error, not a silent no-op) until these are set.
+    notify_lk_user_id: str = ""
+    notify_lk_api_key: str = ""
+    notify_lk_sender_id: str = "NotifyDEMO"
+
     @property
     def allowed_origins(self) -> list[str]:
         return [o.strip() for o in self.cors_origins.split(",") if o.strip()]
