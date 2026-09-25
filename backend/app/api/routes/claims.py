@@ -18,6 +18,7 @@ from app.config import Settings, settings
 from app.services.auth import create_claim_link_token, decode_claim_link_token
 from app.services.captures_lookup import get_insurance_expire_month
 from app.services.claims_privacy_status import mark_capture_approved
+from app.services.sms import send_sms
 from app.services.supabase_service import sb_get
 
 router = APIRouter(prefix="/claims", tags=["claims"])
@@ -234,6 +235,26 @@ def verify_claim_link(token: str) -> Dict[str, Any]:
     except (JWTError, ValueError):
         raise HTTPException(status_code=404, detail="This link is invalid or has expired.")
     return {"nic": payload["nic"], "plateNumber": payload["plateNumber"]}
+
+
+class SendClaimLinkSmsRequest(BaseModel):
+    phone: str
+    url: str
+
+
+@router.post("/claim-links/send-sms")
+async def send_claim_link_sms(
+    body: SendClaimLinkSmsRequest, _: dict = Depends(get_current_user)
+) -> Dict[str, bool]:
+    """Texts an already-generated claim link to the claimant via Notify.lk.
+    Kept separate from create_claim_link so staff can fix up the phone number
+    (or type one in when it wasn't auto-filled from the vehicle search) after
+    seeing the generated link, without having to regenerate it."""
+    try:
+        await send_sms(body.phone, f"Report your accident here: {body.url}")
+    except RuntimeError as exc:
+        raise HTTPException(status_code=502, detail=str(exc))
+    return {"sent": True}
 
 
 _PLATE_QUERY_UNSAFE_CHARS = re.compile(r"[^A-Za-z0-9\- ]")
