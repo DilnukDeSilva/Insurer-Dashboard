@@ -15,8 +15,9 @@ from pydantic import BaseModel
 from app.core.dependencies import get_current_user
 
 from app.config import Settings, settings
-from app.services.auth import create_claim_link_token, decode_claim_link_token
+from app.services.auth import decode_claim_link_token
 from app.services.captures_lookup import get_insurance_expire_month
+from app.services.claim_links import create_short_link, resolve_short_link
 from app.services.claims_privacy_status import mark_capture_approved
 from app.services.sms import send_sms
 from app.services.supabase_service import sb_get
@@ -201,39 +202,42 @@ async def create_claim_link(
     body: CreateClaimLinkRequest, current_user: dict = Depends(get_current_user)
 ) -> Dict[str, Any]:
     """Mints a shareable, no-app-required link an insurer sends a claimant so
-    they can report an accident from a plain mobile browser. Stateless — the
-    token itself carries everything the claimant page needs, so there's
-    nothing here to store or clean up later."""
-    token = create_claim_link_token(
+    they can report an accident from a plain mobile browser. The link carries
+    only a short random code; the NIC/plate/phone it stands for stay
+    server-side, so they're never exposed in an SMS the way a JWT's
+    (merely base64-encoded) payload was."""
+    code = await create_short_link(
         {
             "nic": body.nic.strip(),
             "plateNumber": body.plate_number.strip().upper(),
             "insurerId": current_user["id"],
-            # Not sent anywhere yet (no SMS/WhatsApp integration in v1 — see
-            # the plan) — carried through so it isn't silently dropped, and
-            # is already threaded for whenever that's added.
             "phone": body.phone.strip() if body.phone else None,
         },
         expire_hours=CLAIM_LINK_EXPIRE_HOURS,
     )
     return {
-        "token": token,
+        "token": code,
         # kaduna-web is a static export (no dynamic path segments at runtime) —
-        # the token is a query param the client page reads itself, not a route param.
-        "url": f"{settings.claimant_web_base_url}/claim?token={token}",
+        # the code is the bare query string the /c page reads itself.
+        "url": f"{settings.claimant_web_base_url}/c?{code}",
         "expiresInHours": CLAIM_LINK_EXPIRE_HOURS,
     }
 
 
 @router.get("/claim-links/{token}")
-def verify_claim_link(token: str) -> Dict[str, Any]:
+async def verify_claim_link(token: str) -> Dict[str, Any]:
     """Public (no auth) — the claimant page calls this itself to recover the
-    NIC/plate to pre-fill, since the token is HS256-signed with a
-    server-only secret the browser can't verify on its own."""
-    try:
-        payload = decode_claim_link_token(token)
-    except (JWTError, ValueError):
-        raise HTTPException(status_code=404, detail="This link is invalid or has expired.")
+    NIC/plate to pre-fill. Accepts a short code (current links) or a signed
+    JWT (links sent before short codes existed, still valid until they expire)."""
+    if "." in token:
+        try:
+            payload = decode_claim_link_token(token)
+        except (JWTError, ValueError):
+            raise HTTPException(status_code=404, detail="This link is invalid or has expired.")
+    else:
+        payload = await resolve_short_link(token)
+        if payload is None:
+            raise HTTPException(status_code=404, detail="This link is invalid or has expired.")
     return {"nic": payload["nic"], "plateNumber": payload["plateNumber"]}
 
 
